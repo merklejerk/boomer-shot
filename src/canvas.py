@@ -229,6 +229,9 @@ class ScreenshotCanvas(Gtk.DrawingArea):
         self.initial_crop_x2 = 0
         self.initial_crop_y2 = 0
 
+        self.ai_loading = False
+        self.ai_loading_text = ""
+
         # Set up DrawingArea
         self.set_draw_func(self._on_draw)
 
@@ -347,6 +350,62 @@ class ScreenshotCanvas(Gtk.DrawingArea):
 
             ctx.restore()
 
+        # 4. Draw AI Loading overlay if active
+        if getattr(self, "ai_loading", False):
+            ctx.save()
+            # Draw translucent dark overlay over the entire drawing area
+            ctx.set_source_rgba(0.08, 0.08, 0.08, 0.75)
+            ctx.rectangle(0, 0, self.img_w, self.img_h)
+            ctx.fill()
+
+            # Draw a beautiful loading pill capsule in the center
+            layout = PangoCairo.create_layout(ctx)
+            font_desc = Pango.FontDescription.from_string("Outfit Bold 18")
+            layout.set_font_description(font_desc)
+            layout.set_text(self.ai_loading_text, -1)
+
+            _, logical_rect = layout.get_pixel_extents()
+            text_w = logical_rect.width
+            text_h = logical_rect.height
+
+            tx = (self.img_w - text_w) / 2
+            ty = (self.img_h - text_h) / 2
+
+            ctx.set_source_rgba(0.12, 0.12, 0.12, 0.9)
+            padding_x = 32
+            padding_y = 16
+            rx = tx - padding_x
+            ry = ty - padding_y
+            rw = text_w + 2 * padding_x
+            rh = text_h + 2 * padding_y
+
+            radius = 16
+            ctx.new_sub_path()
+            ctx.arc(rx + rw - radius, ry + radius, radius, -math.pi / 2, 0)
+            ctx.arc(rx + rw - radius, ry + rh - radius, radius, 0, math.pi / 2)
+            ctx.arc(rx + radius, ry + rh - radius, radius, math.pi / 2, math.pi)
+            ctx.arc(rx + radius, ry + radius, radius, math.pi, 3 * math.pi / 2)
+            ctx.close_path()
+            ctx.fill()
+
+            # Accent line on pill
+            ctx.set_source_rgba(0.0, 0.48, 1.0, 1.0)
+            ctx.set_line_width(2.0)
+            ctx.new_sub_path()
+            ctx.arc(rx + rw - radius, ry + radius, radius, -math.pi / 2, 0)
+            ctx.arc(rx + rw - radius, ry + rh - radius, radius, 0, math.pi / 2)
+            ctx.arc(rx + radius, ry + rh - radius, radius, math.pi / 2, math.pi)
+            ctx.arc(rx + radius, ry + radius, radius, math.pi, 3 * math.pi / 2)
+            ctx.close_path()
+            ctx.stroke()
+
+            # Draw text
+            ctx.set_source_rgba(1.0, 1.0, 1.0, 1.0)
+            ctx.move_to(tx, ty)
+            PangoCairo.show_layout(ctx, layout)
+
+            ctx.restore()
+
         return True
 
     def _draw_selection_overlay(self, ctx):
@@ -447,6 +506,8 @@ class ScreenshotCanvas(Gtk.DrawingArea):
         ctx.restore()
 
     def _on_drag_begin(self, gesture, start_x, start_y):
+        if getattr(self, "ai_loading", False):
+            return
         self._commit_text_entry()
         self.drag_start_x, self.drag_start_y = self._logical_to_physical(start_x, start_y)
         print(
@@ -630,6 +691,9 @@ class ScreenshotCanvas(Gtk.DrawingArea):
             print(f"[BoomerShot] Failed to set cursor {cursor_name}: {e}", file=sys.stderr)
 
     def _on_motion(self, controller, lx, ly):
+        if getattr(self, "ai_loading", False):
+            self._update_cursor(None)
+            return
         if not self.selection_made:
             if self.current_tool == TOOL_SELECT:
                 self._update_cursor("crosshair")
@@ -667,6 +731,8 @@ class ScreenshotCanvas(Gtk.DrawingArea):
                 self._update_cursor(None)
 
     def _on_clicked(self, gesture, n_press, lx, ly):
+        if getattr(self, "ai_loading", False):
+            return
         self._commit_text_entry()
         if not self.selection_made or self.current_tool != TOOL_TEXT:
             return
@@ -761,3 +827,112 @@ class ScreenshotCanvas(Gtk.DrawingArea):
 
             pixbuf = GdkPixbuf.Pixbuf.new_from_file(temp.name)
             return pixbuf
+
+    def boomerfy(self):
+        """Triggers the background thread to run the boomerfy pipeline."""
+        pixbuf = self.get_cropped_pixbuf()
+        if not pixbuf:
+            # If no selection is made, we automatically select the full screen
+            self.select_full_screen()
+            pixbuf = self.get_cropped_pixbuf()
+
+        if not pixbuf:
+            return
+
+        import os
+        import tempfile
+        import threading
+
+        from gi.repository import GLib
+
+        # Save current cropped selection to a temp file
+        fd, temp_in_path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        pixbuf.savev(temp_in_path, "png", [], [])
+
+        self.ai_loading = True
+        self.ai_loading_text = "AI is Boomer-fying your screenshot..."
+        self.queue_draw()
+
+        def worker():
+            from utils import boomerfy_image
+
+            try:
+                new_img_path = boomerfy_image(temp_in_path)
+
+                # Cleanup input temp file
+                try:
+                    os.remove(temp_in_path)
+                except Exception:
+                    pass
+
+                def update_ui():
+                    try:
+                        import cairo
+
+                        new_bg = cairo.ImageSurface.create_from_png(new_img_path)
+                        self.bg_surface = new_bg
+                        self.img_w = new_bg.get_width()
+                        self.img_h = new_bg.get_height()
+
+                        # Reset crop selection to full screen
+                        self.crop_x1 = 0
+                        self.crop_y1 = 0
+                        self.crop_x2 = self.img_w
+                        self.crop_y2 = self.img_h
+                        self.selection_made = True
+
+                        # Clear existing annotations
+                        self.annotations = []
+                        self.undo_stack = []
+
+                        self.ai_loading = False
+                        self.queue_draw()
+
+                        # Cleanup generated temp file
+                        try:
+                            os.remove(new_img_path)
+                        except Exception:
+                            pass
+
+                        # Notify editor window
+                        root = self.get_root()
+                        if root:
+                            if hasattr(root, "on_selection_completed"):
+                                root.on_selection_completed()
+                            if hasattr(root, "_send_notification"):
+                                root._send_notification(
+                                    "BoomerShot", "Screenshot successfully boomer-fied! 👴"
+                                )
+                    except Exception as e:
+                        self.ai_loading = False
+                        self.queue_draw()
+                        print(
+                            f"[BoomerShot] Error updating canvas with AI image: {e}",
+                            file=sys.stderr,
+                        )
+                        root = self.get_root()
+                        if root and hasattr(root, "_send_notification"):
+                            root._send_notification("BoomerShot", f"Failed to load AI image: {e}")
+
+                GLib.idle_add(update_ui)
+
+            except Exception as ex:
+                err_msg = str(ex)
+                # Cleanup input temp file
+                try:
+                    os.remove(temp_in_path)
+                except Exception:
+                    pass
+
+                def update_error():
+                    self.ai_loading = False
+                    self.queue_draw()
+                    print(f"[BoomerShot] AI Boomerfy failed: {err_msg}", file=sys.stderr)
+                    root = self.get_root()
+                    if root and hasattr(root, "_send_notification"):
+                        root._send_notification("BoomerShot", f"AI Boomerfy failed: {err_msg}")
+
+                GLib.idle_add(update_error)
+
+        threading.Thread(target=worker, daemon=True).start()

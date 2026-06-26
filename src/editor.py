@@ -157,6 +157,17 @@ class ScreenshotEditor(Gtk.Window):
         # Separator
         self.toolbar_box.append(self._create_separator())
 
+        # --- Section 2.5: AI Effects ---
+        boomerfy_btn = Gtk.Button()
+        boomerfy_btn.add_css_class("toolbar-btn")
+        boomerfy_btn.set_icon_name("camera-photo-symbolic")
+        boomerfy_btn.set_tooltip_text("Boomer-fy with AI")
+        boomerfy_btn.connect("clicked", lambda x: self.canvas.boomerfy())
+        self.toolbar_box.append(boomerfy_btn)
+
+        # Separator
+        self.toolbar_box.append(self._create_separator())
+
         # --- Section 3: History & Undo ---
         undo_btn = Gtk.Button()
         undo_btn.add_css_class("toolbar-btn")
