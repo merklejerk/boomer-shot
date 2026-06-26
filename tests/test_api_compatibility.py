@@ -169,3 +169,66 @@ def test_gdk_rgba_api():
     rgba = Gdk.RGBA()
     assert hasattr(rgba, "parse"), "Gdk.RGBA missing parse method"
     assert hasattr(rgba, "to_string"), "Gdk.RGBA missing to_string method"
+
+
+def test_gtk_text_buffer_api():
+    """Ensure Gtk.TextBuffer has the expected methods for get/set text."""
+    buffer = Gtk.TextBuffer.new(None)
+    buffer.set_text("Hello World", -1)
+
+    start = buffer.get_start_iter()
+    end = buffer.get_end_iter()
+    text = buffer.get_text(start, end, False)
+    assert text == "Hello World"
+
+
+def test_gtk_notebook_api():
+    """Ensure Gtk.Notebook has the expected methods for page management."""
+    notebook = Gtk.Notebook.new()
+    page1 = Gtk.Box.new(Gtk.Orientation.VERTICAL, 0)
+    page2 = Gtk.Box.new(Gtk.Orientation.VERTICAL, 0)
+
+    notebook.append_page(page1, Gtk.Label(label="Tab 1"))
+    notebook.append_page(page2, Gtk.Label(label="Tab 2"))
+
+    assert notebook.get_n_pages() == 2
+
+
+def test_config_avoid_redundant_writes(tmp_path):
+    """Verify that save_custom_prompt and save_preferred_provider do not write if unchanged."""
+    import json
+    from unittest.mock import patch
+
+    import ai
+
+    # Mock the CONFIG_PATH to a temp file in tmp_path
+    mock_config_path = str(tmp_path / "config.json")
+
+    with patch("ai.CONFIG_PATH", mock_config_path):
+        # 1. First save (writes the file)
+        ai.save_custom_prompt("Initial Prompt")
+
+        # Verify it was written
+        with open(mock_config_path, "r") as f:
+            data = json.load(f)
+        assert data.get("prompt") == "Initial Prompt"
+
+        # 2. Second save with SAME prompt (should not rewrite file)
+        with patch("builtins.open", side_effect=open) as mock_open:
+            ai.save_custom_prompt("Initial Prompt")
+            # Should read but not write
+            for call in mock_open.call_args_list:
+                args, kwargs = call
+                mode = args[1] if len(args) > 1 else kwargs.get("mode", "r")
+                assert "w" not in mode, "Should not write file if value is unchanged"
+
+        # 3. Save preferred provider (writes the file)
+        ai.save_preferred_provider("openai")
+
+        # 4. Save SAME provider (should not rewrite file)
+        with patch("builtins.open", side_effect=open) as mock_open:
+            ai.save_preferred_provider("openai")
+            for call in mock_open.call_args_list:
+                args, kwargs = call
+                mode = args[1] if len(args) > 1 else kwargs.get("mode", "r")
+                assert "w" not in mode, "Should not write file if provider is unchanged"

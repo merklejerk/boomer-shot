@@ -1,5 +1,6 @@
 import math
 import sys
+from typing import List, Optional, Tuple
 
 import cairo
 import gi
@@ -19,24 +20,25 @@ TOOL_TEXT = "text"
 class Annotation:
     """Base class for annotations."""
 
-    def __init__(self, color, line_width):
-        self.color = color  # Gdk.RGBA
-        self.line_width = line_width
+    def __init__(self, color: Optional[Gdk.RGBA], line_width: float) -> None:
+        self.color: Optional[Gdk.RGBA] = color  # Gdk.RGBA or None
+        self.line_width: float = line_width
 
-    def draw(self, ctx):
+    def draw(self, ctx: cairo.Context) -> None:
         pass
 
 
 class PenAnnotation(Annotation):
-    def __init__(self, color, line_width):
+    def __init__(self, color: Gdk.RGBA, line_width: float) -> None:
         super().__init__(color, line_width)
-        self.points = []
+        self.points: List[Tuple[float, float]] = []
 
-    def draw(self, ctx):
+    def draw(self, ctx: cairo.Context) -> None:
         if len(self.points) < 2:
             return
         ctx.save()
-        ctx.set_source_rgba(self.color.red, self.color.green, self.color.blue, self.color.alpha)
+        if self.color:
+            ctx.set_source_rgba(self.color.red, self.color.green, self.color.blue, self.color.alpha)
         ctx.set_line_width(self.line_width)
         ctx.set_line_cap(cairo.LineCap.ROUND)
         ctx.set_line_join(cairo.LineJoin.ROUND)
@@ -49,14 +51,19 @@ class PenAnnotation(Annotation):
 
 
 class RectAnnotation(Annotation):
-    def __init__(self, color, line_width, x1, y1, x2, y2):
+    def __init__(
+        self, color: Gdk.RGBA, line_width: float, x1: float, y1: float, x2: float, y2: float
+    ) -> None:
         super().__init__(color, line_width)
-        self.x1, self.y1 = x1, y1
-        self.x2, self.y2 = x2, y2
+        self.x1: float = x1
+        self.y1: float = y1
+        self.x2: float = x2
+        self.y2: float = y2
 
-    def draw(self, ctx):
+    def draw(self, ctx: cairo.Context) -> None:
         ctx.save()
-        ctx.set_source_rgba(self.color.red, self.color.green, self.color.blue, self.color.alpha)
+        if self.color:
+            ctx.set_source_rgba(self.color.red, self.color.green, self.color.blue, self.color.alpha)
         ctx.set_line_width(self.line_width)
 
         x = min(self.x1, self.x2)
@@ -70,14 +77,19 @@ class RectAnnotation(Annotation):
 
 
 class ArrowAnnotation(Annotation):
-    def __init__(self, color, line_width, x1, y1, x2, y2):
+    def __init__(
+        self, color: Gdk.RGBA, line_width: float, x1: float, y1: float, x2: float, y2: float
+    ) -> None:
         super().__init__(color, line_width)
-        self.x1, self.y1 = x1, y1
-        self.x2, self.y2 = x2, y2
+        self.x1: float = x1
+        self.y1: float = y1
+        self.x2: float = x2
+        self.y2: float = y2
 
-    def draw(self, ctx):
+    def draw(self, ctx: cairo.Context) -> None:
         ctx.save()
-        ctx.set_source_rgba(self.color.red, self.color.green, self.color.blue, self.color.alpha)
+        if self.color:
+            ctx.set_source_rgba(self.color.red, self.color.green, self.color.blue, self.color.alpha)
         ctx.set_line_width(self.line_width)
         ctx.set_line_cap(cairo.LineCap.ROUND)
 
@@ -108,14 +120,18 @@ class ArrowAnnotation(Annotation):
 
 
 class BlurAnnotation(Annotation):
-    def __init__(self, x1, y1, x2, y2, bg_surface):
+    def __init__(
+        self, x1: float, y1: float, x2: float, y2: float, bg_surface: cairo.ImageSurface
+    ) -> None:
         # Blur has no color or line_width
-        super().__init__(None, 0)
-        self.x1, self.y1 = x1, y1
-        self.x2, self.y2 = x2, y2
-        self.bg_surface = bg_surface
+        super().__init__(None, 0.0)
+        self.x1: float = x1
+        self.y1: float = y1
+        self.x2: float = x2
+        self.y2: float = y2
+        self.bg_surface: cairo.ImageSurface = bg_surface
 
-    def draw(self, ctx):
+    def draw(self, ctx: cairo.Context) -> None:
         x = min(self.x1, self.x2)
         y = min(self.y1, self.y2)
         w = abs(self.x2 - self.x1)
@@ -154,17 +170,19 @@ class BlurAnnotation(Annotation):
 
 
 class TextAnnotation(Annotation):
-    def __init__(self, color, x, y, text):
+    def __init__(self, color: Gdk.RGBA, x: float, y: float, text: str) -> None:
         # Fixed line width for font drawing scaling
-        super().__init__(color, 24)
-        self.x, self.y = x, y
-        self.text = text
+        super().__init__(color, 24.0)
+        self.x: float = x
+        self.y: float = y
+        self.text: str = text
 
-    def draw(self, ctx):
+    def draw(self, ctx: cairo.Context) -> None:
         if not self.text:
             return
         ctx.save()
-        ctx.set_source_rgba(self.color.red, self.color.green, self.color.blue, self.color.alpha)
+        if self.color:
+            ctx.set_source_rgba(self.color.red, self.color.green, self.color.blue, self.color.alpha)
 
         # Use Pango to render text cleanly in GTK
         layout = PangoCairo.create_layout(ctx)

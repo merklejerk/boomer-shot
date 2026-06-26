@@ -12,7 +12,7 @@ from gi.repository import Adw, Gdk, Gio, Gtk
 from editor import ScreenshotEditor
 
 
-def apply_css():
+def apply_css() -> None:
     """Applies custom CSS from style.css for UI styling."""
     provider = Gtk.CssProvider()
     css_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "style.css")
@@ -25,7 +25,7 @@ def apply_css():
         print(f"[BoomerShot] Warning: stylesheet not found at {css_path}", file=sys.stderr)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="BoomerShot Screenshot & Snipping Tool Editor")
     parser.add_argument("--mode", choices=["area", "window"], required=True, help="Screenshot mode")
     parser.add_argument("--file", required=True, help="Path to raw screenshot file")

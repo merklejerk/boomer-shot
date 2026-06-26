@@ -1,7 +1,6 @@
-import base64
-import io
 import os
 import tempfile
+from typing import Any, Optional
 
 import gi
 
@@ -29,7 +28,7 @@ if HAS_SECRET:
         print(f"[BoomerShot] Failed to create Secret schema: {e}")
 
 
-def is_keyring_locked():
+def is_keyring_locked() -> bool:
     """Checks if the default GNOME Keyring collection is locked."""
     if not HAS_SECRET:
         return False
@@ -47,7 +46,7 @@ def is_keyring_locked():
     return False
 
 
-def get_api_key(key_type):
+def get_api_key(key_type: str) -> Optional[str]:
     """Retrieves the API key for key_type ('gemini' or 'openai').
 
     First checks GNOME Keyring (only if unlocked), then environment variables.
@@ -67,7 +66,7 @@ def get_api_key(key_type):
     return os.environ.get(env_var_name)
 
 
-def save_api_key(key_type, value):
+def save_api_key(key_type: str, value: Optional[str]) -> None:
     """Saves the API key to GNOME Keyring."""
     if not HAS_SECRET or not KEYRING_SCHEMA:
         raise RuntimeError("GNOME Keyring (libsecret) is not available.")
@@ -89,8 +88,46 @@ def save_api_key(key_type, value):
 CONFIG_DIR = os.path.expanduser("~/.config/boomer-shot")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
+DEFAULT_PROMPT = (
+    "Transform this screenshot into a photo taken by a cringey boomer on a "
+    "smartphone camera pointed at a computer screen."
+)
 
-def get_preferred_provider():
+
+def get_custom_prompt() -> str:
+    """Gets the custom image generation prompt from config."""
+    if os.path.exists(CONFIG_PATH):
+        try:
+            import json
+
+            with open(CONFIG_PATH, "r") as f:
+                data = json.load(f)
+                return data.get("prompt", DEFAULT_PROMPT)
+        except Exception as e:
+            print(f"[BoomerShot] Failed to read custom prompt: {e}")
+    return DEFAULT_PROMPT
+
+
+def save_custom_prompt(prompt: str) -> None:
+    """Saves the custom image generation prompt to config."""
+    try:
+        import json
+
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        data = {}
+        if os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, "r") as f:
+                data = json.load(f)
+        if data.get("prompt") == prompt:
+            return
+        data["prompt"] = prompt
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"[BoomerShot] Failed to save custom prompt: {e}")
+
+
+def get_preferred_provider() -> str:
     """Gets the preferred AI provider ('gemini' or 'openai')."""
     if os.path.exists(CONFIG_PATH):
         try:
@@ -104,7 +141,7 @@ def get_preferred_provider():
     return "gemini"
 
 
-def save_preferred_provider(provider):
+def save_preferred_provider(provider: str) -> None:
     """Saves the preferred AI provider ('gemini' or 'openai')."""
     try:
         import json
@@ -114,6 +151,8 @@ def save_preferred_provider(provider):
         if os.path.exists(CONFIG_PATH):
             with open(CONFIG_PATH, "r") as f:
                 data = json.load(f)
+        if data.get("provider") == provider:
+            return
         data["provider"] = provider
         with open(CONFIG_PATH, "w") as f:
             json.dump(data, f, indent=4)
@@ -121,14 +160,48 @@ def save_preferred_provider(provider):
         print(f"[BoomerShot] Failed to save config: {e}")
 
 
-def boomerfy_image(input_image_path):
-    """Boomer-fies the screenshot using either Gemini (native image-to-image via gpt-image-2/Imagen)
+def _boomerfy_via_gemini(client: Any, image_bytes: bytes, prompt: str) -> bytes:
+    """Boomer-fies the image using Gemini's flagship image-to-image model."""
+    from google.genai import types
 
-    or OpenAI (native image-to-image via gpt-image-2 with vision+DALL-E 3 fallback).
-    """
+    image_part = types.Part.from_bytes(
+        data=image_bytes,
+        mime_type="image/png",
+    )
+
+    response = client.models.generate_content(
+        model="gemini-2.5-flash-image",
+        contents=[image_part, prompt],
+        config=types.GenerateContentConfig(
+            response_modalities=["TEXT", "IMAGE"],
+        ),
+    )
+
+    for part in response.candidates[0].content.parts:
+        if part.inline_data:
+            return part.inline_data.data
+
+    raise RuntimeError("Gemini did not return any image data.")
+
+
+def _boomerfy_via_openai(client: Any, input_image_path: str, prompt: str) -> bytes:
+    """Boomer-fies the image using OpenAI's flagship gpt-image-2 editing API."""
     import requests
-    from PIL import Image
 
+    response = client.images.edit(
+        model="gpt-image-2",
+        image=open(input_image_path, "rb"),
+        prompt=prompt,
+    )
+    image_url = response.data[0].url
+    dl_response = requests.get(image_url)
+    if dl_response.status_code == 200:
+        return dl_response.content
+    raise RuntimeError(f"Failed to download image from OpenAI: {dl_response.text}")
+
+
+def boomerfy_image(input_image_path: str) -> str:
+    """Boomer-fies the screenshot using either Gemini or OpenAI flagship models."""
     gemini_key = get_api_key("gemini")
     openai_key = get_api_key("openai")
 
@@ -148,189 +221,25 @@ def boomerfy_image(input_image_path):
     with open(input_image_path, "rb") as f:
         image_bytes = f.read()
 
+    prompt = get_custom_prompt()
     new_image_bytes = None
 
     if provider == "gemini":
-        print("[BoomerShot] Using Gemini native image-to-image model...")
+        print("[BoomerShot] Routing request to Gemini (gemini-2.5-flash-image)...")
         from google import genai
-        from google.genai.types import GenerateContentConfig, Modality
 
-        client = genai.Client(api_key=gemini_key)
+        gemini_client: Any = genai.Client(api_key=gemini_key)
+        new_image_bytes = _boomerfy_via_gemini(gemini_client, image_bytes, prompt)
 
-        # Load image via PIL for the SDK
-        pil_image = Image.open(io.BytesIO(image_bytes))
-
-        prompt = (
-            "Generate a new image based on this screenshot. Style it to look exactly like a "
-            "low-quality photo taken by a cringey boomer on a phone camera pointed at a "
-            "monitor screen. The photo must have a visible moiré pattern, dust, reflections "
-            "of a messy room on the monitor glass, and a strong camera flash glare in the "
-            "center of the screen."
-        )
-
-        try:
-            # Let's try gemini-2.5-flash-image
-            response = client.models.generate_content(
-                model="gemini-2.5-flash-image",
-                contents=[pil_image, prompt],
-                config=GenerateContentConfig(
-                    response_modalities=[Modality.TEXT, Modality.IMAGE],
-                ),
-            )
-            for part in response.candidates[0].content.parts:
-                if part.inline_data:
-                    new_image_bytes = part.inline_data.data
-                    break
-        except Exception as e:
-            print(f"[BoomerShot] gemini-2.5-flash-image failed, trying gemini-3.1-flash-image: {e}")
-            try:
-                response = client.models.generate_content(
-                    model="gemini-3.1-flash-image",
-                    contents=[pil_image, prompt],
-                    config=GenerateContentConfig(
-                        response_modalities=[Modality.TEXT, Modality.IMAGE],
-                    ),
-                )
-                for part in response.candidates[0].content.parts:
-                    if part.inline_data:
-                        new_image_bytes = part.inline_data.data
-                        break
-            except Exception as e2:
-                # If both fail, let's try the description-based pipeline
-                print(
-                    "[BoomerShot] gemini-3.1-flash-image failed, "
-                    f"falling back to description + text-to-image: {e2}"
-                )
-                desc_response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=[
-                        pil_image,
-                        (
-                            "Describe the contents of this screenshot in extreme detail, "
-                            "including UI text, controls, window placement, colors, and layout, "
-                            "so that it can be completely recreated. Keep it descriptive."
-                        ),
-                    ],
-                )
-                description = desc_response.text
-
-                boomer_prompt = (
-                    "A photo taken on a cheap, low-quality smartphone camera pointed at "
-                    f"a computer screen. The screen displays: {description}. The photo "
-                    "is slightly blurry, has visible RGB subpixels, moiré patterns, screen "
-                    "glare from the camera flash in the center, reflection of a messy room "
-                    "on the monitor glass, and is slightly tilted and off-center."
-                )
-
-                try:
-                    response_img = client.models.generate_content(
-                        model="gemini-2.5-flash-image",
-                        contents=boomer_prompt,
-                        config=GenerateContentConfig(
-                            response_modalities=[Modality.TEXT, Modality.IMAGE],
-                        ),
-                    )
-                    for part in response_img.candidates[0].content.parts:
-                        if part.inline_data:
-                            new_image_bytes = part.inline_data.data
-                            break
-                except Exception:
-                    response_img = client.models.generate_images(
-                        model="imagen-3.0-generate-002",
-                        prompt=boomer_prompt,
-                        config=dict(number_of_images=1, output_mime_type="image/png"),
-                    )
-                    new_image_bytes = response_img.generated_images[0].image.image_bytes
-
-        if not new_image_bytes:
-            raise RuntimeError("Failed to generate image via Gemini.")
-
-    elif openai_key:
-        print("[BoomerShot] Using OpenAI API...")
+    elif provider == "openai":
+        print("[BoomerShot] Routing request to OpenAI (gpt-image-2)...")
         from openai import OpenAI
 
-        client = OpenAI(api_key=openai_key)
-
-        prompt = (
-            "Transform this screenshot into a photo taken on a cheap, low-quality "
-            "smartphone camera pointed at a computer screen. Make it blurry, with "
-            "visible RGB subpixels, moiré patterns, screen glare from the camera "
-            "flash in the center, reflection of a messy room on the monitor glass, "
-            "and make it slightly tilted and off-center."
-        )
-
-        try:
-            print("[BoomerShot] Trying OpenAI gpt-image-2 native image-to-image edit...")
-            response = client.images.edit(
-                model="gpt-image-2",
-                image=open(input_image_path, "rb"),
-                prompt=prompt,
-            )
-            image_url = response.data[0].url
-            dl_response = requests.get(image_url)
-            if dl_response.status_code == 200:
-                new_image_bytes = dl_response.content
-        except Exception as e:
-            print(
-                "[BoomerShot] gpt-image-2 edit failed, "
-                f"falling back to gpt-4o vision + dall-e-3: {e}"
-            )
-            base64_image = base64.b64encode(image_bytes).decode("utf-8")
-
-            # Step 1: Use gpt-4o vision to describe the screenshot
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": (
-                                    "Describe the contents of this screenshot in extreme detail, "
-                                    "including UI text, controls, window placement, colors, and "
-                                    "layout, so that it can be completely recreated. Keep it "
-                                    "descriptive."
-                                ),
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/png;base64,{base64_image}"},
-                            },
-                        ],
-                    }
-                ],
-            )
-            description = response.choices[0].message.content
-
-            # Step 2: Use DALL-E 3 to generate the boomer photo
-            boomer_prompt = (
-                "A photo taken on a cheap, low-quality smartphone camera pointed at "
-                f"a computer screen. The screen displays: {description}. The photo "
-                "is blurry, has visible RGB subpixels, moiré patterns, screen glare "
-                "from the camera flash in the center, reflection of a messy room on "
-                "the monitor glass, and is slightly tilted and off-center. It looks "
-                "like a low-effort picture of a computer screen taken by an elderly person."
-            )
-
-            img_response = client.images.generate(
-                model="dall-e-3",
-                prompt=boomer_prompt,
-                size="1024x1024",
-                quality="standard",
-                n=1,
-            )
-            image_url = img_response.data[0].url
-
-            # Download the generated image
-            dl_response = requests.get(image_url)
-            if dl_response.status_code == 200:
-                new_image_bytes = dl_response.content
-            else:
-                raise RuntimeError(f"Failed to download image from OpenAI: {dl_response.text}")
+        openai_client: Any = OpenAI(api_key=openai_key)
+        new_image_bytes = _boomerfy_via_openai(openai_client, input_image_path, prompt)
 
     if not new_image_bytes:
-        raise RuntimeError("Failed to generate image via OpenAI.")
+        raise RuntimeError(f"Failed to generate image via {provider.upper()}.")
 
     # Write to a temporary file
     fd, temp_out_path = tempfile.mkstemp(suffix=".png")

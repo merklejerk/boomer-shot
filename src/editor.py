@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import Callable, Dict, Optional
 
 import gi
 
@@ -24,7 +25,7 @@ class ScreenshotEditor(Gtk.Window):
     """Main window displaying the screenshot canvas and floating toolbar."""
 
     # Map drawing tool IDs to standard icon names for popover button synchronization
-    tool_icons = {
+    tool_icons: Dict[str, str] = {
         TOOL_PEN: "document-edit-symbolic",
         TOOL_ARROW: "go-next-symbolic",
         TOOL_RECT: "window-maximize-symbolic",
@@ -32,17 +33,17 @@ class ScreenshotEditor(Gtk.Window):
         TOOL_TEXT: "format-text-bold-symbolic",
     }
 
-    def __init__(self, application, mode, file_path):
+    def __init__(self, application: Gtk.Application, mode: str, file_path: str) -> None:
         super().__init__(application=application)
-        self.mode = mode
-        self.file_path = file_path
+        self.mode: str = mode
+        self.file_path: str = file_path
 
         # Borderless fullscreen config
         self.set_decorated(False)
         self.fullscreen()
 
         # Track active tool & color
-        self.active_tool = TOOL_PEN if mode == "window" else TOOL_SELECT
+        self.active_tool: str = TOOL_PEN if mode == "window" else TOOL_SELECT
 
         self._build_ui()
 
@@ -284,14 +285,14 @@ class ScreenshotEditor(Gtk.Window):
         close_btn.connect("clicked", lambda x: self._on_close_clicked())
         self.toolbar_box.append(close_btn)
 
-    def _create_separator(self):
+    def _create_separator(self) -> Gtk.Box:
         sep = Gtk.Box()
         sep.add_css_class("toolbar-separator")
         sep.set_size_request(1, 16)
         sep.set_valign(Gtk.Align.CENTER)
         return sep
 
-    def _on_tool_changed(self, button, tool_id):
+    def _on_tool_changed(self, button: Gtk.ToggleButton, tool_id: str) -> None:
         if button.get_active():
             self.active_tool = tool_id
             self.canvas.set_tool(tool_id)
@@ -301,13 +302,13 @@ class ScreenshotEditor(Gtk.Window):
                 self.markup_menu_btn.set_icon_name(self.tool_icons[tool_id])
                 self.markup_popover.popdown()
 
-    def _on_color_changed(self, button, color_rgba, hex_str):
+    def _on_color_changed(self, button: Gtk.ToggleButton, color_rgba: str, hex_str: str) -> None:
         if button.get_active():
             self.canvas.set_color(color_rgba)
             self._update_color_indicator(hex_str)
             self.color_popover.popdown()
 
-    def _update_color_indicator(self, hex_str):
+    def _update_color_indicator(self, hex_str: str) -> None:
         provider = Gtk.CssProvider()
         provider.load_from_data(
             f".color-indicator-dot {{ background-color: {hex_str}; }}".encode("utf-8")
@@ -316,14 +317,14 @@ class ScreenshotEditor(Gtk.Window):
             provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
-    def on_selection_completed(self):
+    def on_selection_completed(self) -> None:
         """Called by canvas when the crop area selection is finalized."""
         self.toolbar_container.set_visible(True)
         # Select Pen tool as default drawing option after cropping
         if TOOL_PEN in self.tool_buttons:
             self.tool_buttons[TOOL_PEN].set_active(True)
 
-    def _send_notification(self, title, body):
+    def _send_notification(self, title: str, body: str) -> None:
         """Sends a system notification to inform the user of completed actions."""
         try:
             app = self.get_application()
@@ -334,7 +335,7 @@ class ScreenshotEditor(Gtk.Window):
         except Exception as e:
             print(f"[BoomerShot] Failed to send notification: {e}", file=sys.stderr)
 
-    def _on_copy_clicked(self):
+    def _on_copy_clicked(self) -> None:
         pixbuf = self.canvas.get_cropped_pixbuf()
         if pixbuf:
             if copy_pixbuf_to_clipboard(pixbuf):
@@ -343,7 +344,7 @@ class ScreenshotEditor(Gtk.Window):
         else:
             self._send_notification("BoomerShot", "No selection made! Click & drag to crop first.")
 
-    def _on_save_clicked(self):
+    def _on_save_clicked(self) -> None:
         pixbuf = self.canvas.get_cropped_pixbuf()
         if pixbuf:
             self.set_visible(False)
@@ -362,16 +363,22 @@ class ScreenshotEditor(Gtk.Window):
         else:
             self._send_notification("BoomerShot", "No selection made! Click & drag to crop first.")
 
-    def _on_close_clicked(self):
+    def _on_close_clicked(self) -> None:
         self.close()
 
-    def _setup_keybindings(self):
+    def _setup_keybindings(self) -> None:
         # Keyboard event controller
         key_controller = Gtk.EventControllerKey.new()
         key_controller.connect("key-pressed", self._on_key_pressed)
         self.add_controller(key_controller)
 
-    def _on_key_pressed(self, controller, keyval, keycode, state):
+    def _on_key_pressed(
+        self,
+        controller: Gtk.EventControllerKey,
+        keyval: int,
+        keycode: int,
+        state: Gdk.ModifierType,
+    ) -> bool:
         # Escape key hides settings overlay if visible, otherwise exits the app
         if keyval == Gdk.KEY_Escape:
             if self.config_overlay.get_visible():
@@ -404,7 +411,7 @@ class ScreenshotEditor(Gtk.Window):
 
         return False
 
-    def close(self):
+    def close(self) -> None:
         # Cleanup temporary raw image when editor exits
         super().close()
         try:
@@ -413,24 +420,31 @@ class ScreenshotEditor(Gtk.Window):
         except Exception as e:
             print(f"[BoomerShot] Warning: failed to clean up temp file: {e}", file=sys.stderr)
 
-    def show_api_key_dialog(self, on_save_callback=None):
+    def show_api_key_dialog(self, on_save_callback: Optional[Callable[[], None]] = None) -> None:
         # Compatibility wrapper
         self.show_config_dialog(on_save_callback)
 
-    def show_config_dialog(self, on_save_callback=None):
+    def show_config_dialog(self, on_save_callback: Optional[Callable[[], None]] = None) -> None:
         self.config_overlay.show(on_save_callback)
 
 
 class ConfigOverlay(Gtk.Box):
-    def __init__(self, parent, on_save_callback=None):
+    def __init__(
+        self, parent: ScreenshotEditor, on_save_callback: Optional[Callable[[], None]] = None
+    ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        self.parent = parent
-        self.on_save_callback = on_save_callback
+        self.parent: ScreenshotEditor = parent
+        self.on_save_callback: Optional[Callable[[], None]] = on_save_callback
+
+        self.loaded_gemini_key: str = ""
+        self.loaded_openai_key: str = ""
+        self.loaded_preferred: str = "gemini"
+        self.loaded_prompt: str = ""
 
         self.add_css_class("credentials-dialog")
         self.set_valign(Gtk.Align.CENTER)
         self.set_halign(Gtk.Align.CENTER)
-        self.set_size_request(440, 280)
+        self.set_size_request(440, 320)
 
         # Header / Title
         title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -446,11 +460,23 @@ class ConfigOverlay(Gtk.Box):
         info_label.set_halign(Gtk.Align.START)
         self.append(info_label)
 
-        # Form grid
+        # Create Notebook for tabs
+        notebook = Gtk.Notebook()
+        notebook.set_hexpand(True)
+        notebook.set_vexpand(True)
+        self.append(notebook)
+
+        # --- Tab 1: API Keys ---
+        keys_tab = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        keys_tab.set_margin_top(12)
+        keys_tab.set_margin_bottom(12)
+        keys_tab.set_margin_start(12)
+        keys_tab.set_margin_end(12)
+
         grid = Gtk.Grid()
         grid.set_column_spacing(12)
         grid.set_row_spacing(12)
-        self.append(grid)
+        keys_tab.append(grid)
 
         # Gemini Row
         gemini_label = Gtk.Label(label="Gemini API Key:")
@@ -485,6 +511,31 @@ class ConfigOverlay(Gtk.Box):
         provider_box.append(self.openai_radio)
         grid.attach(provider_box, 1, 2, 1, 1)
 
+        notebook.append_page(keys_tab, Gtk.Label(label="API Keys"))
+
+        # --- Tab 2: AI Prompt ---
+        prompt_tab = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        prompt_tab.set_margin_top(12)
+        prompt_tab.set_margin_bottom(12)
+        prompt_tab.set_margin_start(12)
+        prompt_tab.set_margin_end(12)
+
+        prompt_info = Gtk.Label(label="Custom AI Image Transformation Prompt:")
+        prompt_info.add_css_class("dim-label")
+        prompt_info.set_halign(Gtk.Align.START)
+        prompt_tab.append(prompt_info)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+
+        self.prompt_view = Gtk.TextView()
+        self.prompt_view.set_wrap_mode(Gtk.WrapMode.WORD)
+        scrolled.set_child(self.prompt_view)
+        prompt_tab.append(scrolled)
+
+        notebook.append_page(prompt_tab, Gtk.Label(label="AI Prompt"))
+
         # Button box
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         btn_box.set_halign(Gtk.Align.END)
@@ -503,32 +554,41 @@ class ConfigOverlay(Gtk.Box):
         self.gemini_entry.connect("activate", lambda e: self.save_keys())
         self.openai_entry.connect("activate", lambda e: self.save_keys())
 
-    def load_keys(self, on_save_callback=None):
+    def load_keys(self, on_save_callback: Optional[Callable[[], None]] = None) -> None:
         self.on_save_callback = on_save_callback
 
         # Disable fields until loaded
         self.gemini_entry.set_text("")
         self.openai_entry.set_text("")
+        self.prompt_view.get_buffer().set_text("")
         self.gemini_entry.set_sensitive(False)
         self.openai_entry.set_sensitive(False)
         self.gemini_radio.set_sensitive(False)
         self.openai_radio.set_sensitive(False)
+        self.prompt_view.set_sensitive(False)
         self.save_btn.set_sensitive(False)
 
         import threading
 
         from gi.repository import GLib
 
-        def worker():
-            from ai import get_api_key, get_preferred_provider
+        def worker() -> None:
+            from ai import get_api_key, get_custom_prompt, get_preferred_provider
 
             gemini_key = get_api_key("gemini") or ""
             openai_key = get_api_key("openai") or ""
             preferred = get_preferred_provider()
+            prompt = get_custom_prompt()
 
-            def update_ui():
+            def update_ui() -> bool:
+                self.loaded_gemini_key = gemini_key
+                self.loaded_openai_key = openai_key
+                self.loaded_preferred = preferred
+                self.loaded_prompt = prompt
+
                 self.gemini_entry.set_text(gemini_key)
                 self.openai_entry.set_text(openai_key)
+                self.prompt_view.get_buffer().set_text(prompt)
                 if preferred == "openai":
                     self.openai_radio.set_active(True)
                 else:
@@ -538,6 +598,7 @@ class ConfigOverlay(Gtk.Box):
                 self.openai_entry.set_sensitive(True)
                 self.gemini_radio.set_sensitive(True)
                 self.openai_radio.set_sensitive(True)
+                self.prompt_view.set_sensitive(True)
                 self.save_btn.set_sensitive(True)
                 self.gemini_entry.grab_focus()
                 return False
@@ -546,29 +607,45 @@ class ConfigOverlay(Gtk.Box):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def show(self, on_save_callback=None):
+    def show(self, on_save_callback: Optional[Callable[[], None]] = None) -> None:
         self.load_keys(on_save_callback)
         self.set_visible(True)
         self.queue_draw()
         if self.parent:
             self.parent.queue_draw()
 
-    def hide(self):
+    def hide(self) -> None:
         self.set_visible(False)
         self.queue_draw()
         if self.parent:
             self.parent.queue_draw()
 
-    def save_keys(self):
+    def save_keys(self) -> None:
         gemini_val = self.gemini_entry.get_text().strip()
         openai_val = self.openai_entry.get_text().strip()
         provider_val = "openai" if self.openai_radio.get_active() else "gemini"
+
+        buffer = self.prompt_view.get_buffer()
+        prompt_val = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False).strip()
+
+        gemini_changed = gemini_val != self.loaded_gemini_key
+        openai_changed = openai_val != self.loaded_openai_key
+        provider_changed = provider_val != self.loaded_preferred
+        prompt_changed = prompt_val != self.loaded_prompt
+
+        if not (gemini_changed or openai_changed or provider_changed or prompt_changed):
+            # Nothing changed, just hide and return
+            self.hide()
+            if self.on_save_callback:
+                self.on_save_callback()
+            return
 
         # Disable fields and buttons during background keyring save
         self.gemini_entry.set_sensitive(False)
         self.openai_entry.set_sensitive(False)
         self.gemini_radio.set_sensitive(False)
         self.openai_radio.set_sensitive(False)
+        self.prompt_view.set_sensitive(False)
         self.save_btn.set_sensitive(False)
         self.cancel_btn.set_sensitive(False)
 
@@ -576,22 +653,28 @@ class ConfigOverlay(Gtk.Box):
 
         from gi.repository import GLib
 
-        def worker():
-            from ai import save_api_key, save_preferred_provider
+        def worker() -> None:
+            from ai import save_api_key, save_custom_prompt, save_preferred_provider
 
             error = None
             try:
-                save_api_key("gemini", gemini_val)
-                save_api_key("openai", openai_val)
-                save_preferred_provider(provider_val)
+                if gemini_changed:
+                    save_api_key("gemini", gemini_val)
+                if openai_changed:
+                    save_api_key("openai", openai_val)
+                if provider_changed:
+                    save_preferred_provider(provider_val)
+                if prompt_changed:
+                    save_custom_prompt(prompt_val)
             except Exception as e:
                 error = e
 
-            def update_ui():
+            def update_ui() -> bool:
                 self.gemini_entry.set_sensitive(True)
                 self.openai_entry.set_sensitive(True)
                 self.gemini_radio.set_sensitive(True)
                 self.openai_radio.set_sensitive(True)
+                self.prompt_view.set_sensitive(True)
                 self.save_btn.set_sensitive(True)
                 self.cancel_btn.set_sensitive(True)
 
@@ -602,6 +685,10 @@ class ConfigOverlay(Gtk.Box):
                             "BoomerShot", f"Failed to save settings: {error}"
                         )
                 else:
+                    self.loaded_gemini_key = gemini_val
+                    self.loaded_openai_key = openai_val
+                    self.loaded_preferred = provider_val
+                    self.loaded_prompt = prompt_val
                     self.hide()
                     if self.on_save_callback:
                         self.on_save_callback()

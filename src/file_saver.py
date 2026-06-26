@@ -1,13 +1,19 @@
 import os
 import sys
+from typing import Optional
 
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gio, GLib, Gtk
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import GdkPixbuf, Gio, GLib, Gtk
 
 
-def save_pixbuf_to_file(pixbuf, default_filename="screenshot.png", parent_window=None):
+def save_pixbuf_to_file(
+    pixbuf: GdkPixbuf.Pixbuf,
+    default_filename: str = "screenshot.png",
+    parent_window: Optional[Gtk.Window] = None,
+) -> Optional[str]:
     """Opens a GTK4 FileDialog to save the pixbuf, or falls back to auto-save in Pictures."""
     try:
         pictures_dir = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)

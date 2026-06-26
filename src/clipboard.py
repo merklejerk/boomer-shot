@@ -3,10 +3,11 @@ import sys
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, GLib
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gdk, GdkPixbuf, GLib
 
 
-def copy_pixbuf_to_clipboard(pixbuf):
+def copy_pixbuf_to_clipboard(pixbuf: GdkPixbuf.Pixbuf) -> bool:
     """Copies a GdkPixbuf to the system clipboard (GTK4 way)."""
     try:
         display = Gdk.Display.get_default()
