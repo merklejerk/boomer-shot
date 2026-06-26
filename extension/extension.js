@@ -46,22 +46,35 @@ export default class BoomerShotExtension extends Extension {
                 m => x >= m.x && x < m.x + m.width && y >= m.y && y < m.y + m.height
             ) || Main.layoutManager.primaryMonitor;
 
+            // In GNOME 50, screenshot_area expects a Gio.OutputStream instead of a filename string
+            const file = Gio.File.new_for_path(filename);
+            const stream = file.replace(null, false, Gio.FileCreateFlags.NONE, null);
+
             shooter.screenshot_area(
                 monitor.x,
                 monitor.y,
                 monitor.width,
                 monitor.height,
-                filename,
+                stream,
                 (obj, res) => {
+                    let success = false;
                     try {
-                        const [success, filenameUsed] = shooter.screenshot_area_finish(res);
-                        if (success) {
-                            this._launchEditor('area', filenameUsed);
-                        } else {
-                            console.error('[BoomerShot] Capture was unsuccessful');
-                        }
+                        const [ok, rect] = shooter.screenshot_area_finish(res);
+                        success = ok;
                     } catch (e) {
                         console.error('[BoomerShot] Failed to capture monitor area:', e);
+                    } finally {
+                        try {
+                            stream.close(null);
+                        } catch (err) {
+                            console.error('[BoomerShot] Failed to close stream:', err);
+                        }
+                    }
+
+                    if (success) {
+                        this._launchEditor('area', filename);
+                    } else {
+                        console.error('[BoomerShot] Capture was unsuccessful');
                     }
                 }
             );
@@ -69,23 +82,34 @@ export default class BoomerShotExtension extends Extension {
             // Capture focused window
             const includeFrame = true;
             const includeCursor = false;
-            const flash = false;
+
+            // In GNOME 50, screenshot_window expects (include_frame, include_cursor, stream, callback)
+            const file = Gio.File.new_for_path(filename);
+            const stream = file.replace(null, false, Gio.FileCreateFlags.NONE, null);
 
             shooter.screenshot_window(
                 includeFrame,
                 includeCursor,
-                flash,
-                filename,
+                stream,
                 (obj, res) => {
+                    let success = false;
                     try {
-                        const [success, filenameUsed] = shooter.screenshot_window_finish(res);
-                        if (success) {
-                            this._launchEditor('window', filenameUsed);
-                        } else {
-                            console.error('[BoomerShot] Window capture was unsuccessful');
-                        }
+                        const [ok, rect] = shooter.screenshot_window_finish(res);
+                        success = ok;
                     } catch (e) {
                         console.error('[BoomerShot] Failed to capture window:', e);
+                    } finally {
+                        try {
+                            stream.close(null);
+                        } catch (err) {
+                            console.error('[BoomerShot] Failed to close stream:', err);
+                        }
+                    }
+
+                    if (success) {
+                        this._launchEditor('window', filename);
+                    } else {
+                        console.error('[BoomerShot] Window capture was unsuccessful');
                     }
                 }
             );
@@ -93,15 +117,7 @@ export default class BoomerShotExtension extends Extension {
     }
 
     _launchEditor(mode, filename) {
-        // Look for the Python editor script in the workspace directory first (dev),
-        // and fall back to the installed extension directory (production).
-        const workspacePath = '/home/cluracan/code/boomer-shot';
-        let scriptPath = `${workspacePath}/src/main.py`;
-        
-        const file = Gio.File.new_for_path(scriptPath);
-        if (!file.query_exists(null)) {
-            scriptPath = `${this.path}/src/main.py`;
-        }
+        const scriptPath = `${this.path}/src/main.py`;
 
         try {
             Gio.Subprocess.new(

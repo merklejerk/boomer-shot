@@ -8,14 +8,15 @@ from gi.repository import Gdk, Gio, GLib, Gtk
 
 
 def copy_pixbuf_to_clipboard(pixbuf):
-    """Copies a GdkPixbuf to the system clipboard as a GdkTexture (GTK4 way)."""
+    """Copies a GdkPixbuf to the system clipboard (GTK4 way)."""
     try:
         display = Gdk.Display.get_default()
         clipboard = display.get_clipboard()
 
-        # In GTK4, clipboard image transfer uses Gdk.Texture
-        texture = Gdk.Texture.new_for_pixbuf(pixbuf)
-        clipboard.set_texture(texture)
+        # In PyGObject GTK4, Gdk.Clipboard lacks set_texture method.
+        # The correct, robust approach is using Gdk.ContentProvider.
+        provider = Gdk.ContentProvider.new_for_value(pixbuf)
+        clipboard.set_content(provider)
 
         # A tiny delay or main-loop cycle is sometimes needed on Wayland
         # to ensure the clipboard owner registers before the process exits.
@@ -49,7 +50,6 @@ def save_pixbuf_to_file(pixbuf, default_filename="screenshot.png", parent_window
         initial_file = Gio.File.new_for_path(pictures_dir)
         dialog.set_initial_folder(initial_file)
 
-
         # We want to run this synchronously or handle callbacks.
         # Since GTK4 file dialog is async, we'll run a nested main loop to block until saved,
         # keeping the code flow straightforward.
@@ -69,7 +69,7 @@ def save_pixbuf_to_file(pixbuf, default_filename="screenshot.png", parent_window
         loop.run()
 
         if save_path[0]:
-            pixbuf.save(save_path[0], "png")
+            pixbuf.savev(save_path[0], "png", [], [])
             print(f"[BoomerShot] Successfully saved screenshot to {save_path[0]}")
             return save_path[0]
 
@@ -77,7 +77,7 @@ def save_pixbuf_to_file(pixbuf, default_filename="screenshot.png", parent_window
         # Fallback to direct auto-save if anything fails
         try:
             default_path = os.path.join(os.path.expanduser("~"), "Pictures", default_filename)
-            pixbuf.save(default_path, "png")
+            pixbuf.savev(default_path, "png", [], [])
             print(f"[BoomerShot] Fallback: Auto-saved screenshot to {default_path}")
             return default_path
         except Exception as ex:

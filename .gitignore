@@ -29,3 +29,6 @@ Thumbs.db
 .ruff_cache/
 *.log
 test_*.png
+
+# Symlinked directories during development
+extension/src

@@ -37,7 +37,7 @@ def main():
 
     # Initialize Libadwaita application for modern GNOME design style
     app = Adw.Application(
-        application_id="org.deluludev.BoomerShot", flags=Gio.ApplicationFlags.FLAGS_NONE
+        application_id="org.merklejerk.BoomerShot", flags=Gio.ApplicationFlags.FLAGS_NONE
     )
 
     def on_activate(application):

@@ -1,4 +1,5 @@
 import math
+import sys
 
 import cairo
 import gi
@@ -126,7 +127,7 @@ class BlurAnnotation(Annotation):
         ctx.save()
 
         # Pixelation scale factor
-        pixel_scale = 16
+        pixel_scale = 8
         sw = max(1, int(w / pixel_scale))
         sh = max(1, int(h / pixel_scale))
 
@@ -222,6 +223,11 @@ class ScreenshotCanvas(Gtk.DrawingArea):
         # Drag gesture variables
         self.drag_start_x = 0
         self.drag_start_y = 0
+        self.drag_action = None
+        self.initial_crop_x1 = 0
+        self.initial_crop_y1 = 0
+        self.initial_crop_x2 = 0
+        self.initial_crop_y2 = 0
 
         # Set up DrawingArea
         self.set_draw_func(self._on_draw)
@@ -246,13 +252,23 @@ class ScreenshotCanvas(Gtk.DrawingArea):
         self.click_gesture.connect("pressed", self._on_clicked)
         self.add_controller(self.click_gesture)
 
+        # 3. Motion controller (for hover cursor updates)
+        self.motion_controller = Gtk.EventControllerMotion.new()
+        self.motion_controller.connect("motion", self._on_motion)
+        self.add_controller(self.motion_controller)
+
     def set_tool(self, tool):
         self._commit_text_entry()
         self.current_tool = tool
         if tool == TOOL_SELECT:
             self.selection_made = False
             self.crop_x1 = self.crop_y1 = self.crop_x2 = self.crop_y2 = 0
-            self.annotations = []  # clear annotations when re-selecting
+            self.annotations = []
+            self.undo_stack = []
+            if self.mode == "area":
+                root = self.get_root()
+                if root and hasattr(root, "toolbar_container"):
+                    root.toolbar_container.set_visible(False)
         self.queue_draw()
 
     def set_color(self, color_str):
@@ -271,6 +287,18 @@ class ScreenshotCanvas(Gtk.DrawingArea):
             self.annotations = []
             self.undo_stack = []
             self.queue_draw()
+
+    def select_full_screen(self):
+        self._commit_text_entry()
+        self.crop_x1 = 0
+        self.crop_y1 = 0
+        self.crop_x2 = self.img_w
+        self.crop_y2 = self.img_h
+        self.selection_made = True
+        root = self.get_root()
+        if root and hasattr(root, "on_selection_completed"):
+            root.on_selection_completed()
+        self.queue_draw()
 
     def _get_scale(self):
         """Returns the logical-to-physical scale factor for rendering."""
@@ -327,35 +355,149 @@ class ScreenshotCanvas(Gtk.DrawingArea):
         cw = abs(self.crop_x2 - self.crop_x1)
         ch = abs(self.crop_y2 - self.crop_y1)
 
-        # Draw a semi-transparent dark shade over the whole screen
         ctx.save()
         ctx.set_source_rgba(0.0, 0.0, 0.0, 0.5)
-        ctx.rectangle(0, 0, self.img_w, self.img_h)
-        ctx.fill()
 
-        # Cut out the selected crop box so it's fully bright/clear
-        if cx != 0 or cy != 0 or cw != 0 or ch != 0:
-            ctx.set_operator(cairo.Operator.CLEAR)
-            ctx.rectangle(cx, cy, cw, ch)
+        # Draw dark overlay only outside the crop area (avoiding Operator.CLEAR completely)
+        if cx == 0 and cy == 0 and cw == 0 and ch == 0:
+            ctx.rectangle(0, 0, self.img_w, self.img_h)
+            ctx.fill()
+        else:
+            # 1. Top rect
+            if cy > 0:
+                ctx.rectangle(0, 0, self.img_w, cy)
+            # 2. Bottom rect
+            if cy + ch < self.img_h:
+                ctx.rectangle(0, cy + ch, self.img_w, self.img_h - (cy + ch))
+            # 3. Left rect
+            if cx > 0:
+                ctx.rectangle(0, cy, cx, ch)
+            # 4. Right rect
+            if cx + cw < self.img_w:
+                ctx.rectangle(cx + cw, cy, self.img_w - (cx + cw), ch)
             ctx.fill()
 
             # Draw selection border
-            ctx.set_operator(cairo.Operator.OVER)
             ctx.set_source_rgba(0.0, 0.48, 1.0, 1.0)  # clean blue border
             ctx.set_line_width(2.0)
             ctx.rectangle(cx, cy, cw, ch)
             ctx.stroke()
+
+            # Draw corner resize handles if a selection exists
+            if self.selection_made:
+                ctx.set_source_rgba(0.0, 0.48, 1.0, 1.0)
+                handle_r = 6.0  # handle radius
+                for hx, hy in [(cx, cy), (cx + cw, cy), (cx, cy + ch), (cx + cw, cy + ch)]:
+                    ctx.arc(hx, hy, handle_r, 0, 2 * math.pi)
+                    ctx.fill()
+                    ctx.set_source_rgba(1.0, 1.0, 1.0, 1.0)
+                    ctx.set_line_width(1.5)
+                    ctx.arc(hx, hy, handle_r, 0, 2 * math.pi)
+                    ctx.stroke()
+                    ctx.set_source_rgba(0.0, 0.48, 1.0, 1.0)
+
+        if (
+            cx == 0
+            and cy == 0
+            and cw == 0
+            and ch == 0
+            and self.mode == "area"
+            and not self.selection_made
+        ):
+            # Draw a beautiful pill capsule with help guide text in the center
+            layout = PangoCairo.create_layout(ctx)
+            font_desc = Pango.FontDescription.from_string("Outfit Bold 16")
+            layout.set_font_description(font_desc)
+            layout.set_text("Click & drag to select crop area  •  Esc to cancel", -1)
+
+            # Get text dimensions to center it
+            _, logical_rect = layout.get_pixel_extents()
+            text_w = logical_rect.width
+            text_h = logical_rect.height
+
+            # Center coordinates (in user space coordinates, which maps to physical pixels)
+            tx = (self.img_w - text_w) / 2
+            ty = (self.img_h - text_h) / 2
+
+            # Capsule background
+            ctx.set_operator(cairo.Operator.OVER)
+            ctx.set_source_rgba(0.08, 0.08, 0.08, 0.85)
+
+            padding_x = 24
+            padding_y = 12
+            rx = tx - padding_x
+            ry = ty - padding_y
+            rw = text_w + 2 * padding_x
+            rh = text_h + 2 * padding_y
+
+            radius = 12
+            ctx.new_sub_path()
+            ctx.arc(rx + rw - radius, ry + radius, radius, -math.pi / 2, 0)
+            ctx.arc(rx + rw - radius, ry + rh - radius, radius, 0, math.pi / 2)
+            ctx.arc(rx + radius, ry + rh - radius, radius, math.pi / 2, math.pi)
+            ctx.arc(rx + radius, ry + radius, radius, math.pi, 3 * math.pi / 2)
+            ctx.close_path()
+            ctx.fill()
+
+            # Draw white text
+            ctx.set_source_rgba(1.0, 1.0, 1.0, 1.0)
+            ctx.move_to(tx, ty)
+            PangoCairo.show_layout(ctx, layout)
 
         ctx.restore()
 
     def _on_drag_begin(self, gesture, start_x, start_y):
         self._commit_text_entry()
         self.drag_start_x, self.drag_start_y = self._logical_to_physical(start_x, start_y)
+        print(
+            f"[BoomerShot] Drag begin: logical ({start_x:.1f}, {start_y:.1f}), "
+            f"physical ({self.drag_start_x:.1f}, {self.drag_start_y:.1f})"
+        )
+        self.drag_action = None
 
-        if self.current_tool == TOOL_SELECT:
-            self.selection_made = False
-            self.crop_x1, self.crop_y1 = self.drag_start_x, self.drag_start_y
-            self.crop_x2, self.crop_y2 = self.drag_start_x, self.drag_start_y
+        if self.selection_made:
+            # Check distances to corners for resizing (active in all tools)
+            threshold = 20  # physical pixels
+            dist_tl = math.hypot(self.drag_start_x - self.crop_x1, self.drag_start_y - self.crop_y1)
+            dist_tr = math.hypot(self.drag_start_x - self.crop_x2, self.drag_start_y - self.crop_y1)
+            dist_bl = math.hypot(self.drag_start_x - self.crop_x1, self.drag_start_y - self.crop_y2)
+            dist_br = math.hypot(self.drag_start_x - self.crop_x2, self.drag_start_y - self.crop_y2)
+
+            if dist_tl < threshold:
+                self.drag_action = "resize_tl"
+            elif dist_tr < threshold:
+                self.drag_action = "resize_tr"
+            elif dist_bl < threshold:
+                self.drag_action = "resize_bl"
+            elif dist_br < threshold:
+                self.drag_action = "resize_br"
+
+        if self.drag_action in ("resize_tl", "resize_tr", "resize_bl", "resize_br"):
+            # Resizing selection
+            pass
+        elif self.current_tool == TOOL_SELECT:
+            if self.selection_made:
+                if (
+                    self.crop_x1 <= self.drag_start_x <= self.crop_x2
+                    and self.crop_y1 <= self.drag_start_y <= self.crop_y2
+                ):
+                    self.drag_action = "move"
+                    self.initial_crop_x1 = self.crop_x1
+                    self.initial_crop_y1 = self.crop_y1
+                    self.initial_crop_x2 = self.crop_x2
+                    self.initial_crop_y2 = self.crop_y2
+                else:
+                    self.drag_action = "create"
+                    self.selection_made = False
+                    self.crop_x1 = self.crop_x2 = self.drag_start_x
+                    self.crop_y1 = self.crop_y2 = self.drag_start_y
+                    self.annotations = []  # clear annotations when starting a brand new crop region
+                    self.undo_stack = []
+            else:
+                self.drag_action = "create"
+                self.selection_made = False
+                self.crop_x1 = self.crop_x2 = self.drag_start_x
+                self.crop_y1 = self.crop_y2 = self.drag_start_y
         elif self.selection_made:
             # Check if dragging starts inside the cropped box
             cx = min(self.crop_x1, self.crop_x2)
@@ -404,9 +546,39 @@ class ScreenshotCanvas(Gtk.DrawingArea):
         p_offset_y = offset_y / sy
         curr_x = self.drag_start_x + p_offset_x
         curr_y = self.drag_start_y + p_offset_y
+        print(
+            f"[BoomerShot] Drag update: offset ({offset_x:.1f}, {offset_y:.1f}) -> "
+            f"current ({curr_x:.1f}, {curr_y:.1f})"
+        )
 
-        if self.current_tool == TOOL_SELECT:
-            self.crop_x2, self.crop_y2 = curr_x, curr_y
+        if self.drag_action is not None:
+            if not self.selection_made or self.drag_action == "create":
+                self.crop_x2, self.crop_y2 = curr_x, curr_y
+            elif self.drag_action == "move":
+                dx = curr_x - self.drag_start_x
+                dy = curr_y - self.drag_start_y
+                cw = self.initial_crop_x2 - self.initial_crop_x1
+                ch = self.initial_crop_y2 - self.initial_crop_y1
+
+                # Constrain within bounds
+                new_x1 = max(0, min(self.img_w - cw, self.initial_crop_x1 + dx))
+                new_y1 = max(0, min(self.img_h - ch, self.initial_crop_y1 + dy))
+                self.crop_x1 = new_x1
+                self.crop_y1 = new_y1
+                self.crop_x2 = new_x1 + cw
+                self.crop_y2 = new_y1 + ch
+            elif self.drag_action == "resize_tl":
+                self.crop_x1 = max(0, min(self.crop_x2 - 10, curr_x))
+                self.crop_y1 = max(0, min(self.crop_y2 - 10, curr_y))
+            elif self.drag_action == "resize_tr":
+                self.crop_x2 = max(self.crop_x1 + 10, min(self.img_w, curr_x))
+                self.crop_y1 = max(0, min(self.crop_y2 - 10, curr_y))
+            elif self.drag_action == "resize_bl":
+                self.crop_x1 = max(0, min(self.crop_x2 - 10, curr_x))
+                self.crop_y2 = max(self.crop_y1 + 10, min(self.img_h, curr_y))
+            elif self.drag_action == "resize_br":
+                self.crop_x2 = max(self.crop_x1 + 10, min(self.img_w, curr_x))
+                self.crop_y2 = max(self.crop_y1 + 10, min(self.img_h, curr_y))
         elif self.current_annotation:
             if self.current_tool == TOOL_PEN:
                 self.current_annotation.points.append((curr_x, curr_y))
@@ -416,26 +588,83 @@ class ScreenshotCanvas(Gtk.DrawingArea):
         self.queue_draw()
 
     def _on_drag_end(self, gesture, offset_x, offset_y):
-        if self.current_tool == TOOL_SELECT:
+        print(f"[BoomerShot] Drag end: offset ({offset_x:.1f}, {offset_y:.1f})")
+        if self.drag_action is not None:
             # Finalize crop box
-            cw = abs(self.crop_x2 - self.crop_x1)
-            ch = abs(self.crop_y2 - self.crop_y1)
+            x1 = min(self.crop_x1, self.crop_x2)
+            x2 = max(self.crop_x1, self.crop_x2)
+            y1 = min(self.crop_y1, self.crop_y2)
+            y2 = max(self.crop_y1, self.crop_y2)
+            self.crop_x1, self.crop_x2 = x1, x2
+            self.crop_y1, self.crop_y2 = y1, y2
+
+            cw = self.crop_x2 - self.crop_x1
+            ch = self.crop_y2 - self.crop_y1
 
             if cw > 5 and ch > 5:
                 self.selection_made = True
-                # Switch to drawing mode immediately
-                self.current_tool = TOOL_PEN
-                self.get_root().on_selection_completed()
-
+                # Switch to drawing mode immediately only on initial creation
+                if self.drag_action == "create":
+                    self.current_tool = TOOL_PEN
+                    self.get_root().on_selection_completed()
             else:
                 self.selection_made = False
                 self.crop_x1 = self.crop_y1 = self.crop_x2 = self.crop_y2 = 0
+
+            self.drag_action = None
         elif self.current_annotation:
             self.annotations.append(self.current_annotation)
             self.undo_stack = []  # Clear redo stack on new action
             self.current_annotation = None
 
         self.queue_draw()
+
+    def _update_cursor(self, cursor_name):
+        try:
+            if cursor_name:
+                cursor = Gdk.Cursor.new_from_name(cursor_name, None)
+                self.set_cursor(cursor)
+            else:
+                self.set_cursor(None)
+        except Exception as e:
+            print(f"[BoomerShot] Failed to set cursor {cursor_name}: {e}", file=sys.stderr)
+
+    def _on_motion(self, controller, lx, ly):
+        if not self.selection_made:
+            if self.current_tool == TOOL_SELECT:
+                self._update_cursor("crosshair")
+            else:
+                self._update_cursor(None)
+            return
+
+        px, py = self._logical_to_physical(lx, ly)
+
+        # Corners
+        threshold = 20
+        dist_tl = math.hypot(px - self.crop_x1, py - self.crop_y1)
+        dist_tr = math.hypot(px - self.crop_x2, py - self.crop_y1)
+        dist_bl = math.hypot(px - self.crop_x1, py - self.crop_y2)
+        dist_br = math.hypot(px - self.crop_x2, py - self.crop_y2)
+
+        if dist_tl < threshold:
+            self._update_cursor("nwse-resize")
+        elif dist_tr < threshold:
+            self._update_cursor("nesw-resize")
+        elif dist_bl < threshold:
+            self._update_cursor("nesw-resize")
+        elif dist_br < threshold:
+            self._update_cursor("nwse-resize")
+        elif (
+            self.current_tool == TOOL_SELECT
+            and self.crop_x1 <= px <= self.crop_x2
+            and self.crop_y1 <= py <= self.crop_y2
+        ):
+            self._update_cursor("move")
+        else:
+            if self.current_tool == TOOL_SELECT:
+                self._update_cursor("crosshair")
+            else:
+                self._update_cursor(None)
 
     def _on_clicked(self, gesture, n_press, lx, ly):
         self._commit_text_entry()
@@ -463,7 +692,9 @@ class ScreenshotCanvas(Gtk.DrawingArea):
         self.text_entry.py = py
 
         # Put in layout container
-        self.fixed_container.put(self.text_entry, lx, ly)
+        if self.fixed_container:
+            self.fixed_container.set_can_target(True)
+            self.fixed_container.put(self.text_entry, lx, ly)
         self.text_entry.grab_focus()
 
         # Commit text on Enter key press
@@ -487,7 +718,9 @@ class ScreenshotCanvas(Gtk.DrawingArea):
             self.annotations.append(ann)
             self.undo_stack = []
 
-        self.fixed_container.remove(self.text_entry)
+        if self.fixed_container:
+            self.fixed_container.remove(self.text_entry)
+            self.fixed_container.set_can_target(False)
         self.text_entry = None
         self.queue_draw()
 

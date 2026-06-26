@@ -78,7 +78,3 @@ sequenceDiagram
     Editor-->>User: Close window
     deactivate Editor
 ```
-
-## 📜 License
-
-MIT License. Developed by DeluluDev.

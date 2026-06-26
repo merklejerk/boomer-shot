@@ -109,6 +109,10 @@ BoomerShot is built as a hybrid application to bypass Wayland's security restric
 * **Convention:** GTK4 widget instantiation requires an active display (X11/Wayland). To prevent tests from crashing on headless hosts or remote sessions, write tests using **mock/in-memory Cairo surfaces** rather than launching GTK window loops.
 * **Example:** Create a `cairo.ImageSurface` and call `annotation.draw(ctx)` to verify drawing logic.
 
+### Probing GObject / Platform APIs
+* **Rule:** Always prove new or unknown platform APIs (like GObject/GLib bindings, GTK4 methods, Gdk types) in our probe tests located in [tests/test_api_compatibility.py](file:///home/me/code/boomer-shot/tests/test_api_compatibility.py) before using them in code.
+* **Why:** It is easy to hallucinate platform/binding APIs (like `Gdk.Clipboard.set_texture` or `pixbuf.save`, which are missing or behave differently under specific PyGObject/GTK4 versions). Explicitly checking their signatures and attributes in the probe test suite prevents runtime crashes and ensures code is robust.
+
 ### PyGObject Linter Exceptions (E402)
 * **Convention:** Always call `gi.require_version("Gtk", "4.0")` before importing `gi.repository.Gtk`. Since this is an executable statement, Ruff flags subsequent imports as `E402` (imports not at top of file). This false positive is disabled in `pyproject.toml` and should remain ignored.
 

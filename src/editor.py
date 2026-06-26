@@ -5,7 +5,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gdk, Gtk
+from gi.repository import Gdk, Gio, Gtk
 
 from canvas import (
     TOOL_ARROW,
@@ -47,6 +47,9 @@ class ScreenshotEditor(Gtk.Window):
 
         # 3. Transparent Fixed overlay for dynamic floating text inputs
         self.fixed_layout = Gtk.Fixed()
+        self.fixed_layout.set_can_target(
+            False
+        )  # Let mouse events fall through to the canvas underneath!
         overlay.add_overlay(self.fixed_layout)
         self.canvas.fixed_container = self.fixed_layout
 
@@ -59,10 +62,6 @@ class ScreenshotEditor(Gtk.Window):
         self._create_toolbar()
         self.toolbar_container.append(self.toolbar_box)
         overlay.add_overlay(self.toolbar_container)
-
-        # In area mode, hide the toolbar until the crop box selection is completed
-        if self.mode == "area":
-            self.toolbar_container.set_visible(False)
 
         # Keyboard shortcuts (e.g. Esc to Close, Ctrl+Z to Undo, Ctrl+C to Copy, Ctrl+S to Save)
         self._setup_keybindings()
@@ -77,10 +76,10 @@ class ScreenshotEditor(Gtk.Window):
         first_tool_btn = None
 
         tools_config = [
-            (TOOL_PEN, "draw-freehand-symbolic", "Freehand Pen"),
+            (TOOL_PEN, "document-edit-symbolic", "Freehand Pen"),
             (TOOL_ARROW, "go-next-symbolic", "Draw Arrow"),
-            (TOOL_RECT, "draw-rectangle-symbolic", "Draw Rectangle"),
-            (TOOL_BLUR, "view-filter-symbolic", "Blur / Pixelate"),
+            (TOOL_RECT, "window-maximize-symbolic", "Draw Rectangle"),
+            (TOOL_BLUR, "view-conceal-symbolic", "Blur / Pixelate"),
             (TOOL_TEXT, "format-text-bold-symbolic", "Add Text"),
         ]
 
@@ -107,6 +106,15 @@ class ScreenshotEditor(Gtk.Window):
             if tool_id == self.active_tool:
                 btn.set_active(True)
 
+            # Insert "Select Full Screen" right next to "Crop Region" button
+            if tool_id == TOOL_SELECT:
+                fullscreen_btn = Gtk.Button()
+                fullscreen_btn.add_css_class("toolbar-btn")
+                fullscreen_btn.set_icon_name("view-fullscreen-symbolic")
+                fullscreen_btn.set_tooltip_text("Select Full Screen")
+                fullscreen_btn.connect("clicked", lambda x: self.canvas.select_full_screen())
+                self.toolbar_box.append(fullscreen_btn)
+
         # Separator
         self.toolbar_box.append(self._create_separator())
 
@@ -125,6 +133,7 @@ class ScreenshotEditor(Gtk.Window):
             btn = Gtk.ToggleButton()
             btn.add_css_class("color-btn")
             btn.set_tooltip_text(name)
+            btn.set_valign(Gtk.Align.CENTER)
 
             # Custom inline style for button color circle
             # GTK4 allows loading custom provider for specific widgets
@@ -211,19 +220,44 @@ class ScreenshotEditor(Gtk.Window):
         if TOOL_PEN in self.tool_buttons:
             self.tool_buttons[TOOL_PEN].set_active(True)
 
+    def _send_notification(self, title, body):
+        """Sends a system notification to inform the user of completed actions."""
+        try:
+            app = self.get_application()
+            if app:
+                notification = Gio.Notification.new(title)
+                notification.set_body(body)
+                app.send_notification("boomer-shot-notify", notification)
+        except Exception as e:
+            print(f"[BoomerShot] Failed to send notification: {e}", file=sys.stderr)
+
     def _on_copy_clicked(self):
         pixbuf = self.canvas.get_cropped_pixbuf()
         if pixbuf:
-            copy_pixbuf_to_clipboard(pixbuf)
-        self.close()
+            if copy_pixbuf_to_clipboard(pixbuf):
+                self._send_notification("BoomerShot", "Copied crop to clipboard!")
+            self.close()
+        else:
+            self._send_notification("BoomerShot", "No selection made! Click & drag to crop first.")
 
     def _on_save_clicked(self):
         pixbuf = self.canvas.get_cropped_pixbuf()
         if pixbuf:
-            # Hide editor window briefly so it doesn't get in the way of save dialog
             self.set_visible(False)
-            save_pixbuf_to_file(pixbuf, default_filename="screenshot.png", parent_window=self)
-        self.close()
+            from datetime import datetime
+
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            default_filename = f"Screenshot_{timestamp}.png"
+            saved_path = save_pixbuf_to_file(
+                pixbuf, default_filename=default_filename, parent_window=self
+            )
+            if saved_path:
+                self._send_notification("BoomerShot", f"Saved to {os.path.basename(saved_path)}")
+                self.close()
+            else:
+                self.set_visible(True)
+        else:
+            self._send_notification("BoomerShot", "No selection made! Click & drag to crop first.")
 
     def _on_close_clicked(self):
         self.close()
