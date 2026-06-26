@@ -43,45 +43,9 @@ sudo apt install python3-gi python3-cairo gir1.2-gtk-4.0 gir1.2-adw-1
 
 ---
 
-## 🧐 The Wayland Dilemma (Why this exists)
-
-Under Wayland, user-space applications are strictly forbidden from capturing your screen silently because *security*. If you try, the display server will scream and throw a permission prompt at you every single time.
-
-BoomerShot bypasses this politely with a **hybrid architecture**:
-1. **The Privileged Extension (GNOME Shell Extension):** Written in ESM JavaScript, it runs in-process with the window manager to instantly and silently capture your monitor area and bind global hotkeys (`Super+Shift+S`).
-2. **The User-Space Editor:** A lightweight Python 3 app (built with GTK4, Libadwaita, and Cairo vector drawing) that opens fullscreen to let you crop, draw, pixelate, or call the AI before copying to your clipboard.
-
-```mermaid
-sequenceDiagram
-    actor User
-    participant WM as GNOME Shell Extension
-    participant Sys as Shell.Screenshot (Privileged)
-    participant Editor as GTK4 Editor (Python)
-
-    User->>WM: Press Super+Shift+S
-    activate WM
-    WM->>WM: Locate mouse pointer monitor
-    WM->>Sys: Capture active monitor area (Silent)
-    Sys-->>WM: Save raw screenshot to /tmp
-    WM->>Editor: Spawn Editor process passing temp file path
-    deactivate WM
-    activate Editor
-    Editor-->>User: Open borderless fullscreen editor
-    User->>Editor: Select crop area & draw annotations
-    User->>Editor: Click Boomer-fy with AI
-    Editor-->>User: Output CRT-glare style screenshot
-    User->>Editor: Click Copy / Save
-    Editor-->>User: Write crop to Clipboard / File
-    Editor->>Editor: Delete raw temp screenshot
-    Editor-->>User: Close window
-    deactivate Editor
-```
-
----
-
 ## ✨ Features
 
-*   **Instant Silent Capture:** Bypasses Wayland security prompts entirely.
+*   **Instant Silent Capture:** Captures the screen area silently using the GNOME Shell extension.
 *   **DPI-Aware Canvas:** Automatically scales the screen grab to the physical resolution of high-DPI (Retina/4K) monitors so your crops are crisp and pixel-perfect.
 *   **Multi-Monitor Friendly:** Tracks your pointer and only captures/displays on the active screen, avoiding multi-monitor stretching.
 *   **Rich Annotations:**
@@ -96,6 +60,8 @@ sequenceDiagram
 ---
 
 ## 🛠 Tech Stack
+
+BoomerShot uses a hybrid architecture: a GNOME Shell extension handles the privileged screen capture to bypass Wayland's security dialogs, while a GTK4 Python client presents the editor GUI.
 
 *   **GNOME Shell Extension:** JavaScript (ESM, GNOME 50+)
 *   **Editor GUI:** Python 3 + PyGObject (GTK4 + Libadwaita + Cairo vector drawing)
