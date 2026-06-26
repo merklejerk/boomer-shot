@@ -1,0 +1,10 @@
+{
+  "name": "BoomerShot Helper",
+  "description": "Silent capture helper for the BoomerShot screenshot and snipping tool",
+  "uuid": "boomer-shot@deluludev.com",
+  "settings-schema": "org.gnome.shell.extensions.boomer-shot",
+  "shell-version": [
+    "50"
+  ],
+  "version": 1
+}

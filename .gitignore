@@ -1,0 +1,31 @@
+# Python caching
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.venv/
+venv/
+ENV/
+env/
+.env
+
+# Compiled GSettings schemas
+extension/schemas/gschemas.compiled
+
+# Editors & IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Test outputs and logs
+.pytest_cache/
+.ruff_cache/
+*.log
+test_*.png

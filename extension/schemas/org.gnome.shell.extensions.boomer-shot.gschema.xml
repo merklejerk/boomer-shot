@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.boomer-shot" path="/org/gnome/shell/extensions/boomer-shot/">
+    <key name="snip-area" type="as">
+      <default>['&lt;Super&gt;&lt;Shift&gt;s']</default>
+      <summary>Hotkey to take an area screenshot</summary>
+      <description>Triggers full screen capture on current monitor and opens editor</description>
+    </key>
+    <key name="snip-window" type="as">
+      <default>['&lt;Super&gt;&lt;Shift&gt;w']</default>
+      <summary>Hotkey to take a window screenshot</summary>
+      <description>Triggers active window capture and opens editor</description>
+    </key>
+  </schema>
+</schemalist>

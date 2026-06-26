@@ -1,0 +1,105 @@
+/* Glassmorphic floating toolbar */
+.floating-toolbar {
+    background-color: rgba(30, 30, 30, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 16px;
+    padding: 8px 16px;
+    margin-bottom: 32px;
+    box-shadow: 0px 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+/* Toolbar tool buttons */
+.toolbar-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 8px;
+    color: #e0e0e0;
+}
+
+.toolbar-btn:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+}
+
+.toolbar-btn:checked {
+    background-color: #007aff;
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+}
+
+/* Separator between tool sections */
+.toolbar-separator {
+    background-color: rgba(255, 255, 255, 0.15);
+    width: 1px;
+    margin: 4px 8px;
+}
+
+/* Standard color palette indicator buttons */
+.color-btn {
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    padding: 0;
+    margin: 2px;
+}
+
+.color-btn:hover {
+    transform: scale(1.15);
+    border-color: #ffffff;
+}
+
+.color-btn:checked {
+    border-color: #ffffff;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+}
+
+/* Highlighting action buttons */
+.btn-primary {
+    background-color: #007aff;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    font-weight: bold;
+    padding: 6px 14px;
+    color: #ffffff;
+}
+.btn-primary:hover {
+    background-color: #3395ff;
+}
+
+.btn-success {
+    background-color: #34c759;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    font-weight: bold;
+    padding: 6px 14px;
+    color: #ffffff;
+}
+.btn-success:hover {
+    background-color: #5ed67d;
+}
+
+.btn-danger {
+    background-color: #ff3b30;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    font-weight: bold;
+    padding: 6px 14px;
+    color: #ffffff;
+}
+.btn-danger:hover {
+    background-color: #ff6961;
+}
+
+/* Text insertion entry widget styling */
+.floating-text-input {
+    background-color: rgba(20, 20, 20, 0.9);
+    border: 2px solid #007aff;
+    border-radius: 8px;
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: bold;
+    padding: 6px 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
