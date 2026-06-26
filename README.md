@@ -26,9 +26,22 @@ Once logged back in, enable the **BoomerShot Helper** in the Extensions app or r
 ```bash
 make enable
 ```
-*Hotkeys will now be active:*
-*   `Super+Shift+S`: Interactive Snipping tool (select crop and edit)
-*   `Super+Shift+W`: Capture active window directly and annotate it
+
+### ⌨️ Global Shortcuts
+
+Trigger BoomerShot from anywhere on your desktop:
+*   `Super+Shift+S`: Select a custom crop area.
+*   `Super+Shift+W`: Capture the active window directly.
+
+To customize these shortcuts, use `gsettings` from your terminal:
+```bash
+# Change crop area shortcut (e.g. to Super+Shift+P)
+gsettings set org.gnome.shell.extensions.boomer-shot snip-area "['<Super><Shift>p']"
+
+# Change active window shortcut (e.g. to Super+Shift+O)
+gsettings set org.gnome.shell.extensions.boomer-shot snip-window "['<Super><Shift>o']"
+```
+Or navigate to `/org/gnome/shell/extensions/boomer-shot/` inside **Dconf Editor** to modify them visually.
 
 ### 🔍 Troubleshooting (Missing System Dependencies)
 Most modern GNOME + Wayland setups come with PyGObject, Cairo, and GTK4 pre-installed. However, if the editor fails to launch or complains about missing Python bindings, you can install them manually:
