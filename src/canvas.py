@@ -894,8 +894,13 @@ class ScreenshotCanvas(Gtk.DrawingArea):
         os.close(fd)
         pixbuf.savev(temp_in_path, "png", [], [])
 
+        from ai import get_effective_provider
+
+        provider = get_effective_provider()
+        provider_name = "OpenAI" if provider == "openai" else "Gemini"
+
         self.ai_loading = True
-        self.ai_loading_text = "AI is Boomer-fying your screenshot..."
+        self.ai_loading_text = f"{provider_name} is Boomer-fying your screenshot..."
         self.queue_draw()
 
         def worker():
@@ -963,19 +968,39 @@ class ScreenshotCanvas(Gtk.DrawingArea):
 
             except Exception as ex:
                 err_msg = str(ex)
+                import traceback
+
+                tb_str = traceback.format_exc()
+
                 # Cleanup input temp file
                 try:
                     os.remove(temp_in_path)
                 except Exception:
                     pass
 
-                def update_error():
+                def update_error() -> bool:
                     self.ai_loading = False
                     self.queue_draw()
                     print(f"[BoomerShot] AI Boomerfy failed: {err_msg}", file=sys.stderr)
+
+                    from ai import log_error
+
+                    log_error(err_msg, tb_str)
+
                     root = self.get_root()
-                    if root and hasattr(root, "_send_notification"):
-                        root._send_notification("BoomerShot", f"AI Boomerfy failed: {err_msg}")
+                    if root:
+                        if hasattr(root, "show_error_dialog"):
+                            truncated_msg = (
+                                err_msg if len(err_msg) < 1000 else err_msg[:1000] + "..."
+                            )
+                            root.show_error_dialog(
+                                "AI Boomerfy Failed",
+                                f"Error details:\n{truncated_msg}\n\n"
+                                "Full logs saved to ~/.config/boomer-shot/last_error.log",
+                            )
+                        elif hasattr(root, "_send_notification"):
+                            root._send_notification("BoomerShot", f"AI Boomerfy failed: {err_msg}")
+                    return False
 
                 GLib.idle_add(update_error)
 

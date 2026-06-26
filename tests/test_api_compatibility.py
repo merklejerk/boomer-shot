@@ -232,3 +232,51 @@ def test_config_avoid_redundant_writes(tmp_path):
                 args, kwargs = call
                 mode = args[1] if len(args) > 1 else kwargs.get("mode", "r")
                 assert "w" not in mode, "Should not write file if provider is unchanged"
+
+
+def test_config_sparse_storage(tmp_path):
+    """Verify that save_custom_prompt and save_preferred_provider only write non-default values."""
+    import json
+    from unittest.mock import patch
+
+    import ai
+
+    mock_config_path = str(tmp_path / "config.json")
+
+    with patch("ai.CONFIG_PATH", mock_config_path):
+        # 1. Save default prompt (should result in empty or no 'prompt' key in JSON)
+        ai.save_custom_prompt(ai.DEFAULT_PROMPT)
+        if os.path.exists(mock_config_path):
+            with open(mock_config_path, "r") as f:
+                data = json.load(f)
+            assert "prompt" not in data
+
+        # 2. Save custom non-default prompt (should save 'prompt' key)
+        ai.save_custom_prompt("Custom prompt text")
+        with open(mock_config_path, "r") as f:
+            data = json.load(f)
+        assert data.get("prompt") == "Custom prompt text"
+
+        # 3. Save it back to default (should remove 'prompt' key)
+        ai.save_custom_prompt(ai.DEFAULT_PROMPT)
+        with open(mock_config_path, "r") as f:
+            data = json.load(f)
+        assert "prompt" not in data
+
+        # 4. Save default provider (gemini) (should not save 'provider' key)
+        ai.save_preferred_provider("gemini")
+        with open(mock_config_path, "r") as f:
+            data = json.load(f)
+        assert "provider" not in data
+
+        # 5. Save custom provider (openai) (should save 'provider' key)
+        ai.save_preferred_provider("openai")
+        with open(mock_config_path, "r") as f:
+            data = json.load(f)
+        assert data.get("provider") == "openai"
+
+        # 6. Save it back to default (gemini) (should remove 'provider' key)
+        ai.save_preferred_provider("gemini")
+        with open(mock_config_path, "r") as f:
+            data = json.load(f)
+        assert "provider" not in data

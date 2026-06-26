@@ -427,6 +427,34 @@ class ScreenshotEditor(Gtk.Window):
     def show_config_dialog(self, on_save_callback: Optional[Callable[[], None]] = None) -> None:
         self.config_overlay.show(on_save_callback)
 
+    def show_error_dialog(self, title: str, message: str) -> None:
+        """Shows a modern Adw.MessageDialog with the error details."""
+        try:
+            from gi.repository import Adw
+
+            dialog = Adw.MessageDialog.new(self, title, message)
+            dialog.add_response("ok", "OK")
+            dialog.set_default_response("ok")
+            dialog.connect("response", lambda d, r: d.destroy())
+            dialog.present()
+        except Exception:
+            # Fallback to standard Gtk.MessageDialog if Adw.MessageDialog fails
+            try:
+                from gi.repository import Gtk
+
+                dialog = Gtk.MessageDialog(
+                    transient_for=self,
+                    modal=True,
+                    message_type=Gtk.MessageType.ERROR,
+                    buttons=Gtk.ButtonsType.OK,
+                    text=title,
+                )
+                dialog.format_secondary_text(message)
+                dialog.connect("response", lambda d, r: d.destroy())
+                dialog.present()
+            except Exception as ex:
+                print(f"[BoomerShot] Failed to display error dialog: {ex}", file=sys.stderr)
+
 
 class ConfigOverlay(Gtk.Box):
     def __init__(

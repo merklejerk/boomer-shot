@@ -1,6 +1,6 @@
 import os
 import tempfile
-from typing import Any, Optional
+from typing import Optional
 
 import gi
 
@@ -89,8 +89,9 @@ CONFIG_DIR = os.path.expanduser("~/.config/boomer-shot")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
 DEFAULT_PROMPT = (
-    "Transform this screenshot into a photo taken by a cringey boomer on a "
-    "smartphone camera pointed at a computer screen."
+    "Transform this screenshot into a photo of a computer monitor taken by a cringey boomer on a "
+    "smartphone camera, slightly off angle, complete with some glare/reflections. "
+    "The screenshot contents should be preserved as closely as possible."
 )
 
 
@@ -109,20 +110,34 @@ def get_custom_prompt() -> str:
 
 
 def save_custom_prompt(prompt: str) -> None:
-    """Saves the custom image generation prompt to config."""
+    """Saves the custom image generation prompt to config.
+
+    Sparse storage: Only saves 'prompt' if it differs from DEFAULT_PROMPT.
+    """
     try:
+        import copy
         import json
 
         os.makedirs(CONFIG_DIR, exist_ok=True)
         data = {}
         if os.path.exists(CONFIG_PATH):
             with open(CONFIG_PATH, "r") as f:
-                data = json.load(f)
-        if data.get("prompt") == prompt:
-            return
-        data["prompt"] = prompt
-        with open(CONFIG_PATH, "w") as f:
-            json.dump(data, f, indent=4)
+                try:
+                    data = json.load(f)
+                except Exception:
+                    pass
+
+        original_data = copy.deepcopy(data)
+
+        if prompt == DEFAULT_PROMPT:
+            if "prompt" in data:
+                del data["prompt"]
+        else:
+            data["prompt"] = prompt
+
+        if data != original_data:
+            with open(CONFIG_PATH, "w") as f:
+                json.dump(data, f, indent=4)
     except Exception as e:
         print(f"[BoomerShot] Failed to save custom prompt: {e}")
 
@@ -141,81 +156,213 @@ def get_preferred_provider() -> str:
     return "gemini"
 
 
+def get_effective_provider() -> str:
+    """Determines which provider ('gemini' or 'openai') will be used based on config and keys."""
+    gemini_key = get_api_key("gemini")
+    openai_key = get_api_key("openai")
+
+    provider = get_preferred_provider()
+
+    # Fallback logic if the preferred provider doesn't have a key configured
+    if provider == "gemini" and not gemini_key and openai_key:
+        return "openai"
+    elif provider == "openai" and not openai_key and gemini_key:
+        return "gemini"
+
+    return provider
+
+
 def save_preferred_provider(provider: str) -> None:
-    """Saves the preferred AI provider ('gemini' or 'openai')."""
+    """Saves the preferred AI provider ('gemini' or 'openai').
+
+    Sparse storage: Only saves 'provider' if it differs from the default ('gemini').
+    """
     try:
+        import copy
         import json
 
         os.makedirs(CONFIG_DIR, exist_ok=True)
         data = {}
         if os.path.exists(CONFIG_PATH):
             with open(CONFIG_PATH, "r") as f:
-                data = json.load(f)
-        if data.get("provider") == provider:
-            return
-        data["provider"] = provider
-        with open(CONFIG_PATH, "w") as f:
-            json.dump(data, f, indent=4)
+                try:
+                    data = json.load(f)
+                except Exception:
+                    pass
+
+        original_data = copy.deepcopy(data)
+
+        if provider == "gemini":
+            if "provider" in data:
+                del data["provider"]
+        else:
+            data["provider"] = provider
+
+        if data != original_data:
+            with open(CONFIG_PATH, "w") as f:
+                json.dump(data, f, indent=4)
     except Exception as e:
         print(f"[BoomerShot] Failed to save config: {e}")
 
 
-def _boomerfy_via_gemini(client: Any, image_bytes: bytes, prompt: str) -> bytes:
-    """Boomer-fies the image using Gemini's flagship image-to-image model."""
-    from google.genai import types
+def log_error(err_msg: str, tb_str: str = "") -> None:
+    """Logs the error and optional traceback to ~/.config/boomer-shot/last_error.log."""
+    import sys
 
-    image_part = types.Part.from_bytes(
-        data=image_bytes,
-        mime_type="image/png",
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        log_path = os.path.join(CONFIG_DIR, "last_error.log")
+        with open(log_path, "w") as f:
+            f.write(f"Error: {err_msg}\n")
+            if tb_str:
+                f.write("\nTraceback:\n")
+                f.write(tb_str)
+    except Exception as e:
+        print(f"[BoomerShot] Failed to write error log: {e}", file=sys.stderr)
+
+
+def encode_multipart_formdata(
+    fields: dict[str, str], files: dict[str, tuple[str, bytes, str]]
+) -> tuple[bytes, str]:
+    """Encodes fields and files into multipart/form-data bytes and boundary."""
+    import uuid
+
+    boundary = f"Boundary-{uuid.uuid4().hex}"
+    body = []
+
+    for name, value in fields.items():
+        body.append(f"--{boundary}".encode("utf-8"))
+        body.append(f'Content-Disposition: form-data; name="{name}"'.encode("utf-8"))
+        body.append(b"")
+        body.append(value.encode("utf-8"))
+
+    for name, (filename, file_bytes, mime_type) in files.items():
+        body.append(f"--{boundary}".encode("utf-8"))
+        body.append(
+            f'Content-Disposition: form-data; name="{name}"; filename="{filename}"'.encode("utf-8")
+        )
+        body.append(f"Content-Type: {mime_type}".encode("utf-8"))
+        body.append(b"")
+        body.append(file_bytes)
+
+    body.append(f"--{boundary}--".encode("utf-8"))
+    body.append(b"")
+
+    payload = b"\r\n".join(body)
+    content_type = f"multipart/form-data; boundary={boundary}"
+    return payload, content_type
+
+
+def _boomerfy_via_gemini(api_key: str, image_bytes: bytes, prompt: str) -> bytes:
+    """Boomer-fies the image using Gemini's REST API directly."""
+    import base64
+    import json
+    import urllib.error
+    import urllib.request
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={api_key}"
+
+    # Base64 encode the input image
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"inlineData": {"mimeType": "image/png", "data": image_b64}},
+                    {"text": prompt},
+                ]
+            }
+        ],
+        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
+    }
+
+    headers = {"Content-Type": "application/json"}
+
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST"
     )
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash-image",
-        contents=[image_part, prompt],
-        config=types.GenerateContentConfig(
-            response_modalities=["TEXT", "IMAGE"],
-        ),
-    )
+    try:
+        with urllib.request.urlopen(req) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8")
+        raise RuntimeError(
+            f"Gemini API request failed: {e.code} {e.reason}\nResponse: {err_body}"
+        ) from e
 
-    for part in response.candidates[0].content.parts:
-        if part.inline_data:
-            return part.inline_data.data
+    try:
+        parts = res_data["candidates"][0]["content"]["parts"]
+        for part in parts:
+            if "inlineData" in part:
+                return base64.b64decode(part["inlineData"]["data"])
+    except (KeyError, IndexError) as e:
+        raise RuntimeError(f"Unexpected response structure from Gemini API: {res_data}") from e
 
-    raise RuntimeError("Gemini did not return any image data.")
+    raise RuntimeError("Gemini API did not return any image data.")
 
 
-def _boomerfy_via_openai(client: Any, input_image_path: str, prompt: str) -> bytes:
-    """Boomer-fies the image using OpenAI's flagship gpt-image-2 editing API."""
-    import requests
+def _boomerfy_via_openai(api_key: str, input_image_path: str, prompt: str) -> bytes:
+    """Boomer-fies the image using OpenAI's REST API directly."""
+    import json
+    import urllib.error
+    import urllib.request
 
-    response = client.images.edit(
-        model="gpt-image-2",
-        image=open(input_image_path, "rb"),
-        prompt=prompt,
-    )
-    image_url = response.data[0].url
-    dl_response = requests.get(image_url)
-    if dl_response.status_code == 200:
-        return dl_response.content
-    raise RuntimeError(f"Failed to download image from OpenAI: {dl_response.text}")
+    url = "https://api.openai.com/v1/images/edits"
+
+    with open(input_image_path, "rb") as f:
+        image_bytes = f.read()
+
+    fields = {"prompt": prompt, "model": "gpt-image-2"}
+
+    files = {"image": ("image.png", image_bytes, "image/png")}
+
+    payload, content_type = encode_multipart_formdata(fields, files)
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": content_type}
+
+    req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+
+    try:
+        with urllib.request.urlopen(req) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8")
+        raise RuntimeError(
+            f"OpenAI API request failed: {e.code} {e.reason}\nResponse: {err_body}"
+        ) from e
+
+    try:
+        item = res_data["data"][0]
+        if "b64_json" in item:
+            import base64
+
+            return base64.b64decode(item["b64_json"])
+        elif "url" in item:
+            image_url = item["url"]
+            with urllib.request.urlopen(image_url) as response:
+                return response.read()
+        else:
+            raise KeyError("Neither 'b64_json' nor 'url' found in response item")
+    except (KeyError, IndexError) as e:
+        keys_summary = list(res_data.keys()) if isinstance(res_data, dict) else "not a dict"
+        raise RuntimeError(
+            f"Unexpected response structure from OpenAI API (keys: {keys_summary})"
+        ) from e
+    except Exception as e:
+        raise RuntimeError(f"Failed to handle OpenAI image payload: {e}") from e
 
 
 def boomerfy_image(input_image_path: str) -> str:
     """Boomer-fies the screenshot using either Gemini or OpenAI flagship models."""
+    provider = get_effective_provider()
+
     gemini_key = get_api_key("gemini")
     openai_key = get_api_key("openai")
 
     if not gemini_key and not openai_key:
         raise ValueError("Neither GEMINI_API_KEY nor OPENAI_API_KEY is configured.")
-
-    # Determine which provider to use
-    provider = get_preferred_provider()
-
-    # Fallback logic if the preferred provider doesn't have a key configured
-    if provider == "gemini" and not gemini_key:
-        provider = "openai"
-    elif provider == "openai" and not openai_key:
-        provider = "gemini"
 
     # Read the input image bytes
     with open(input_image_path, "rb") as f:
@@ -226,17 +373,15 @@ def boomerfy_image(input_image_path: str) -> str:
 
     if provider == "gemini":
         print("[BoomerShot] Routing request to Gemini (gemini-2.5-flash-image)...")
-        from google import genai
-
-        gemini_client: Any = genai.Client(api_key=gemini_key)
-        new_image_bytes = _boomerfy_via_gemini(gemini_client, image_bytes, prompt)
+        # Ensure we assert that key is present for the type system
+        assert gemini_key is not None
+        new_image_bytes = _boomerfy_via_gemini(gemini_key, image_bytes, prompt)
 
     elif provider == "openai":
         print("[BoomerShot] Routing request to OpenAI (gpt-image-2)...")
-        from openai import OpenAI
-
-        openai_client: Any = OpenAI(api_key=openai_key)
-        new_image_bytes = _boomerfy_via_openai(openai_client, input_image_path, prompt)
+        # Ensure we assert that key is present for the type system
+        assert openai_key is not None
+        new_image_bytes = _boomerfy_via_openai(openai_key, input_image_path, prompt)
 
     if not new_image_bytes:
         raise RuntimeError(f"Failed to generate image via {provider.upper()}.")
