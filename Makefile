@@ -29,7 +29,9 @@ install: all
 	cp src/main.py "$(EXTENSION_DIR)/src/"
 	cp src/editor.py "$(EXTENSION_DIR)/src/"
 	cp src/canvas.py "$(EXTENSION_DIR)/src/"
-	cp src/utils.py "$(EXTENSION_DIR)/src/"
+	cp src/clipboard.py "$(EXTENSION_DIR)/src/"
+	cp src/file_saver.py "$(EXTENSION_DIR)/src/"
+	cp src/ai.py "$(EXTENSION_DIR)/src/"
 	cp src/style.css "$(EXTENSION_DIR)/src/"
 
 	# Compile GSettings schemas in the destination directory

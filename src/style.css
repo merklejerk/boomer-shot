@@ -103,3 +103,69 @@
     padding: 6px 12px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
+
+/* Credentials dialog overlay styling */
+.credentials-dialog {
+    background-color: rgba(25, 25, 25, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0px 15px 40px rgba(0, 0, 0, 0.6);
+    color: #ffffff;
+}
+
+.credentials-dialog label {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.credentials-dialog .dialog-title {
+    font-size: 20px;
+    font-weight: bold;
+    color: #ffffff;
+    margin-bottom: 4px;
+}
+
+.credentials-dialog .dim-label {
+    font-size: 13px;
+    color: #a0a0a0;
+}
+
+.credentials-dialog entry {
+    background-color: rgba(45, 45, 45, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    color: #ffffff;
+    padding: 8px 12px;
+    font-size: 14px;
+}
+
+.credentials-dialog entry:focus {
+    border-color: #007aff;
+    box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.4);
+}
+
+.credentials-dialog button {
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+/* Color indicator dot inside toolbar button */
+.color-indicator-dot {
+    min-width: 16px;
+    min-height: 16px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    background-color: #ff3b30;
+}
+
+/* Popover toolbar styling */
+.popover-toolbar {
+    padding: 6px;
+    background-color: rgba(30, 30, 30, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+}

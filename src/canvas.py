@@ -830,6 +830,32 @@ class ScreenshotCanvas(Gtk.DrawingArea):
 
     def boomerfy(self):
         """Triggers the background thread to run the boomerfy pipeline."""
+        import threading
+
+        from gi.repository import GLib
+
+        # Check if keys are configured in a background thread to prevent
+        # blocking the main thread if keyring is locked
+        def check_worker():
+            from ai import get_api_key
+
+            gemini_key = get_api_key("gemini")
+            openai_key = get_api_key("openai")
+
+            def on_check_completed():
+                if not gemini_key and not openai_key:
+                    root = self.get_root()
+                    if root and hasattr(root, "show_api_key_dialog"):
+                        root.show_api_key_dialog(on_save_callback=self.boomerfy)
+                else:
+                    self._run_boomerfy_pipeline()
+                return False
+
+            GLib.idle_add(on_check_completed)
+
+        threading.Thread(target=check_worker, daemon=True).start()
+
+    def _run_boomerfy_pipeline(self):
         pixbuf = self.get_cropped_pixbuf()
         if not pixbuf:
             # If no selection is made, we automatically select the full screen
@@ -855,7 +881,7 @@ class ScreenshotCanvas(Gtk.DrawingArea):
         self.queue_draw()
 
         def worker():
-            from utils import boomerfy_image
+            from ai import boomerfy_image
 
             try:
                 new_img_path = boomerfy_image(temp_in_path)

@@ -1,89 +1,124 @@
+import base64
+import io
 import os
-import sys
+import tempfile
 
 import gi
 
-gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Gtk
+try:
+    gi.require_version("Secret", "1")
+    from gi.repository import Secret
 
+    HAS_SECRET = True
+except Exception:
+    HAS_SECRET = False
 
-def copy_pixbuf_to_clipboard(pixbuf):
-    """Copies a GdkPixbuf to the system clipboard (GTK4 way)."""
+# Schema for keyring
+KEYRING_SCHEMA = None
+if HAS_SECRET:
     try:
-        display = Gdk.Display.get_default()
-        clipboard = display.get_clipboard()
-
-        # In PyGObject GTK4, Gdk.Clipboard lacks set_texture method.
-        # The correct, robust approach is using Gdk.ContentProvider.
-        provider = Gdk.ContentProvider.new_for_value(pixbuf)
-        clipboard.set_content(provider)
-
-        # A tiny delay or main-loop cycle is sometimes needed on Wayland
-        # to ensure the clipboard owner registers before the process exits.
-        context = GLib.MainContext.default()
-        for _ in range(10):
-            context.iteration(False)
-
-        print("[BoomerShot] Successfully copied cropped region to clipboard.")
-        return True
+        KEYRING_SCHEMA = Secret.Schema.new(
+            "org.merklejerk.BoomerShot.ApiKeySchema",
+            Secret.SchemaFlags.NONE,
+            {
+                "service": Secret.SchemaAttributeType.STRING,
+                "key_type": Secret.SchemaAttributeType.STRING,
+            },
+        )
     except Exception as e:
-        print(f"[BoomerShot] Error copying to clipboard: {e}", file=sys.stderr)
+        print(f"[BoomerShot] Failed to create Secret schema: {e}")
+
+
+def is_keyring_locked():
+    """Checks if the default GNOME Keyring collection is locked."""
+    if not HAS_SECRET:
         return False
-
-
-def save_pixbuf_to_file(pixbuf, default_filename="screenshot.png", parent_window=None):
-    """Opens a GTK4 FileDialog to save the pixbuf, or falls back to auto-save in Pictures."""
     try:
-        pictures_dir = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
-        if not pictures_dir:
-            pictures_dir = os.path.expanduser("~/Pictures")
+        service = Secret.Service.get_sync(Secret.ServiceFlags.NONE, None)
+        if not service:
+            return False
+        col = Secret.Collection.for_alias_sync(
+            service, "default", Secret.CollectionFlags.NONE, None
+        )
+        if col:
+            return col.get_locked()
+    except Exception as e:
+        print(f"[BoomerShot] Failed to check if keyring is locked: {e}")
+    return False
 
-        os.makedirs(pictures_dir, exist_ok=True)
-        default_path = os.path.join(pictures_dir, default_filename)
 
-        # In GTK4, Gtk.FileChooserDialog is deprecated. We use Gtk.FileDialog!
-        dialog = Gtk.FileDialog.new()
-        dialog.set_title("Save Screenshot")
-        dialog.set_initial_name(default_filename)
+def get_api_key(key_type):
+    """Retrieves the API key for key_type ('gemini' or 'openai').
 
-        # Set initial folder
-        initial_file = Gio.File.new_for_path(pictures_dir)
-        dialog.set_initial_folder(initial_file)
-
-        # We want to run this synchronously or handle callbacks.
-        # Since GTK4 file dialog is async, we'll run a nested main loop to block until saved,
-        # keeping the code flow straightforward.
-        loop = GLib.MainLoop()
-        save_path = [None]
-
-        def on_save_callback(dialog_obj, result):
-            try:
-                target_file = dialog_obj.save_finish(result)
-                if target_file:
-                    save_path[0] = target_file.get_path()
-            except Exception as ex:
-                print(f"[BoomerShot] File dialog error or cancelled: {ex}", file=sys.stderr)
-            loop.quit()
-
-        dialog.save(parent_window, None, on_save_callback)
-        loop.run()
-
-        if save_path[0]:
-            pixbuf.savev(save_path[0], "png", [], [])
-            print(f"[BoomerShot] Successfully saved screenshot to {save_path[0]}")
-            return save_path[0]
-
-    except Exception:
-        # Fallback to direct auto-save if anything fails
+    First checks GNOME Keyring (only if unlocked), then environment variables.
+    """
+    # 1. Try GNOME Keyring (only if not locked to avoid blocking/hanging)
+    if HAS_SECRET and KEYRING_SCHEMA and not is_keyring_locked():
         try:
-            default_path = os.path.join(os.path.expanduser("~"), "Pictures", default_filename)
-            pixbuf.savev(default_path, "png", [], [])
-            print(f"[BoomerShot] Fallback: Auto-saved screenshot to {default_path}")
-            return default_path
-        except Exception as ex:
-            print(f"[BoomerShot] Critical error saving file: {ex}", file=sys.stderr)
+            attrs = {"service": "boomer-shot", "key_type": key_type}
+            key = Secret.password_lookup_sync(KEYRING_SCHEMA, attrs, None)
+            if key:
+                return key
+        except Exception as e:
+            print(f"[BoomerShot] Keyring lookup failed: {e}")
 
-    return None
+    # 2. Try Environment Variables
+    env_var_name = "GEMINI_API_KEY" if key_type == "gemini" else "OPENAI_API_KEY"
+    return os.environ.get(env_var_name)
+
+
+def save_api_key(key_type, value):
+    """Saves the API key to GNOME Keyring."""
+    if not HAS_SECRET or not KEYRING_SCHEMA:
+        raise RuntimeError("GNOME Keyring (libsecret) is not available.")
+
+    attrs = {"service": "boomer-shot", "key_type": key_type}
+    label = f"BoomerShot {key_type.upper()} API Key"
+
+    if value:
+        success = Secret.password_store_sync(
+            KEYRING_SCHEMA, attrs, Secret.COLLECTION_DEFAULT, label, value, None
+        )
+        if not success:
+            raise RuntimeError("Failed to store key in GNOME Keyring.")
+    else:
+        # Clear the key if value is empty/None
+        Secret.password_clear_sync(KEYRING_SCHEMA, attrs, None)
+
+
+CONFIG_DIR = os.path.expanduser("~/.config/boomer-shot")
+CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
+
+
+def get_preferred_provider():
+    """Gets the preferred AI provider ('gemini' or 'openai')."""
+    if os.path.exists(CONFIG_PATH):
+        try:
+            import json
+
+            with open(CONFIG_PATH, "r") as f:
+                data = json.load(f)
+                return data.get("provider", "gemini")
+        except Exception as e:
+            print(f"[BoomerShot] Failed to read config: {e}")
+    return "gemini"
+
+
+def save_preferred_provider(provider):
+    """Saves the preferred AI provider ('gemini' or 'openai')."""
+    try:
+        import json
+
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        data = {}
+        if os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, "r") as f:
+                data = json.load(f)
+        data["provider"] = provider
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"[BoomerShot] Failed to save config: {e}")
 
 
 def boomerfy_image(input_image_path):
@@ -91,19 +126,23 @@ def boomerfy_image(input_image_path):
 
     or OpenAI (native image-to-image via gpt-image-2 with vision+DALL-E 3 fallback).
     """
-    import base64
-    import io
-    import os
-    import tempfile
-
     import requests
     from PIL import Image
 
-    gemini_key = os.environ.get("GEMINI_API_KEY")
-    openai_key = os.environ.get("OPENAI_API_KEY")
+    gemini_key = get_api_key("gemini")
+    openai_key = get_api_key("openai")
 
     if not gemini_key and not openai_key:
-        raise ValueError("Neither GEMINI_API_KEY nor OPENAI_API_KEY is set in environment.")
+        raise ValueError("Neither GEMINI_API_KEY nor OPENAI_API_KEY is configured.")
+
+    # Determine which provider to use
+    provider = get_preferred_provider()
+
+    # Fallback logic if the preferred provider doesn't have a key configured
+    if provider == "gemini" and not gemini_key:
+        provider = "openai"
+    elif provider == "openai" and not openai_key:
+        provider = "gemini"
 
     # Read the input image bytes
     with open(input_image_path, "rb") as f:
@@ -111,7 +150,7 @@ def boomerfy_image(input_image_path):
 
     new_image_bytes = None
 
-    if gemini_key:
+    if provider == "gemini":
         print("[BoomerShot] Using Gemini native image-to-image model...")
         from google import genai
         from google.genai.types import GenerateContentConfig, Modality
