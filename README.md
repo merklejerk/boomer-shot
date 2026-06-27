@@ -4,7 +4,7 @@ Screenshots that look like they were taken by your grandpa.
 
 <img src="promo/sample.png" alt="BoomerShot sample output" width="480" />
 
-Extension built for GNOME + Wayland.
+Screenshot/snipping tool shell extension built for GNOME + Wayland.
 
 AI is optional. Also works as a normal offline screenshot tool if you don't configure any AI keys.
 
