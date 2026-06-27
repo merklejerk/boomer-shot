@@ -1,6 +1,6 @@
 # BoomerShot 📸👴
 
-Screenshots that look like they were taken by your grandpa.
+Take screenshots that look like they were taken by your grandpa.
 
 <img src="promo/boomerfy_flow.png" alt="Annotate your screenshot, then Boomer-fy it" width="500" />
 
