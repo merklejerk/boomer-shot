@@ -2,7 +2,7 @@
 
 Screenshots that look like they were taken by your grandpa.
 
-<img src="promo/sample.png" alt="BoomerShot sample output" width="480" />
+<img src="promo/boomerfy_flow.png" alt="Annotate your screenshot, then Boomer-fy it" width="500" />
 
 Screenshot/snipping tool shell extension built for GNOME + Wayland.
 
@@ -60,6 +60,10 @@ sudo apt install python3-gi python3-cairo gir1.2-gtk-4.0 gir1.2-adw-1
 
 ## ✨ Features
 
+<p align="center">
+  <img src="promo/toolbar.png" alt="BoomerShot Floating Toolbar" width="500" />
+</p>
+
 *   **Instant Silent Capture:** Captures the screen area silently using the GNOME Shell extension.
 *   **DPI-Aware Canvas:** Automatically scales the screen grab to the physical resolution of high-DPI (Retina/4K) monitors so your crops are crisp and pixel-perfect.
 *   **Multi-Monitor Friendly:** Tracks your pointer and only captures/displays on the active screen, avoiding multi-monitor stretching.
@@ -69,7 +73,7 @@ sudo apt install python3-gi python3-cairo gir1.2-gtk-4.0 gir1.2-adw-1
     *   Rectangle tool
     *   Text insertion tool (using Gtk.Entry overlaid on Cairo drawing)
     *   **Retro Pixelation Blur:** Pixelates sensitive information using native Cairo scaling with a `NEAREST` filter (zero external dependencies like PIL or OpenCV).
-*   **"Boomer-fy" AI Filter:** Uses Gemini (`gemini-2.5-flash-image`) or OpenAI (`gpt-image-2`) via zero-dependency raw REST HTTP queries to transform your screenshot into a low-quality smartphone picture of a computer screen (glare, reflections, moiré patterns, and slight tilts included!).
+*   **"Boomer-fy" AI Filter:** Uses Gemini (`gemini-2.5-flash-image`) or OpenAI (`gpt-image-2`) integration to transform your screenshot into a low-quality smartphone picture of a computer screen (glare, reflections, moiré patterns, and slight tilts included!).
 *   **Clipboard & File Save:** Copies crops directly to the Wayland clipboard or saves them via GNOME's modern `Gtk.FileDialog`.
 
 ---
@@ -81,7 +85,7 @@ BoomerShot uses a hybrid architecture: a GNOME Shell extension handles the privi
 *   **GNOME Shell Extension:** JavaScript (ESM, GNOME 50+)
 *   **Editor GUI:** Python 3 + PyGObject (GTK4 + Libadwaita + Cairo vector drawing)
 *   **Styling:** Custom CSS stylesheet (`src/style.css`)
-*   **Zero-Dependency APIs:** Raw REST HTTP requests to Gemini/OpenAI using only standard library `urllib` (no `google-genai` or `openai` packages needed).
+*   **AI Integration:** Native REST calls to Gemini/OpenAI API backends.
 
 ---
 
