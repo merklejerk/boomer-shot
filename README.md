@@ -64,17 +64,16 @@ sudo apt install python3-gi python3-cairo gir1.2-gtk-4.0 gir1.2-adw-1
   <img src="promo/toolbar.png" alt="BoomerShot Floating Toolbar" width="500" />
 </p>
 
-*   **Instant Silent Capture:** Captures the screen area silently using the GNOME Shell extension.
-*   **DPI-Aware Canvas:** Automatically scales the screen grab to the physical resolution of high-DPI (Retina/4K) monitors so your crops are crisp and pixel-perfect.
+*   **Snipping + window mode:** Select a screen area or instantly select a window to capture.
 *   **Multi-Monitor Friendly:** Tracks your pointer and only captures/displays on the active screen, avoiding multi-monitor stretching.
 *   **Rich Annotations:**
     *   Freehand Pen tool
     *   Dynamic Arrow drawer (with automatic arrow heads)
     *   Rectangle tool
-    *   Text insertion tool (using Gtk.Entry overlaid on Cairo drawing)
-    *   **Retro Pixelation Blur:** Pixelates sensitive information using native Cairo scaling with a `NEAREST` filter (zero external dependencies like PIL or OpenCV).
+    *   Text insertion tool
+    *   Pixelate tool (for hiding sensitive stuff)
 *   **"Boomer-fy" AI Filter:** Uses Gemini (`gemini-2.5-flash-image`) or OpenAI (`gpt-image-2`) integration to transform your screenshot into a low-quality smartphone picture of a computer screen (glare, reflections, moiré patterns, and slight tilts included!).
-*   **Clipboard & File Save:** Copies crops directly to the Wayland clipboard or saves them via GNOME's modern `Gtk.FileDialog`.
+*   **Clipboard & File Save:** Copies crops directly to the Wayland clipboard or saves them to a file.
 
 ---
 
@@ -134,6 +133,12 @@ uv run python3 src/main.py --mode area --file /path/to/some_image.png
 ---
 
 ## ❓ FAQ
+
+**Q: Does this require an API key to use?**  
+A: You can use all the normal screenshot/clipping functionality without an API key. Only the "boomerfy" feature requires either a Google AI Studio or OpenAI API key. 
+
+**Q: Does this send screen contents anywhere?**  
+A: Only if you click on the boomerfy button, in which case it goes to your chosen provider (Gemini or OpenAI) for image processing. Otherwise, it all stays on your machine.
 
 **Q: Where general config saved?**  
 A: It is stored at `~/.config/boomer-shot/config.json`.
