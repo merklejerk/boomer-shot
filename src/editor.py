@@ -228,12 +228,12 @@ class ScreenshotEditor(Gtk.Window):
         self.toolbar_box.append(self._create_separator())
 
         # --- Section 4: AI Effects ---
-        boomerfy_btn = Gtk.Button()
-        boomerfy_btn.add_css_class("toolbar-btn")
-        boomerfy_btn.set_icon_name("camera-photo-symbolic")
-        boomerfy_btn.set_tooltip_text("Boomer-fy with AI")
-        boomerfy_btn.connect("clicked", lambda x: self.canvas.boomerfy())
-        self.toolbar_box.append(boomerfy_btn)
+        self.boomerfy_btn = Gtk.Button()
+        self.boomerfy_btn.add_css_class("toolbar-btn")
+        self.boomerfy_btn.set_icon_name("camera-photo-symbolic")
+        self.boomerfy_btn.set_tooltip_text("Boomer-fy with AI")
+        self.boomerfy_btn.connect("clicked", lambda x: self.canvas.boomerfy())
+        self.toolbar_box.append(self.boomerfy_btn)
 
         config_btn = Gtk.Button()
         config_btn.add_css_class("toolbar-btn")
@@ -323,6 +323,15 @@ class ScreenshotEditor(Gtk.Window):
         # Select Pen tool as default drawing option after cropping
         if TOOL_PEN in self.tool_buttons:
             self.tool_buttons[TOOL_PEN].set_active(True)
+
+    def update_boomerfy_button(self, has_generated_image: bool) -> None:
+        """Updates the Boomerfy button icon and tooltip based on active AI generation state."""
+        if has_generated_image:
+            self.boomerfy_btn.set_icon_name("view-refresh-symbolic")
+            self.boomerfy_btn.set_tooltip_text("Retry Boomer-fy")
+        else:
+            self.boomerfy_btn.set_icon_name("camera-photo-symbolic")
+            self.boomerfy_btn.set_tooltip_text("Boomer-fy with AI")
 
     def _send_notification(self, title: str, body: str) -> None:
         """Sends a system notification to inform the user of completed actions."""

@@ -249,6 +249,7 @@ class ScreenshotCanvas(Gtk.DrawingArea):
 
         self.ai_loading = False
         self.ai_loading_text = ""
+        self.pre_boomerfy_state = None
 
         # Set up DrawingArea
         self.set_draw_func(self._on_draw)
@@ -297,12 +298,41 @@ class ScreenshotCanvas(Gtk.DrawingArea):
         self.active_color.parse(color_str)
 
     def undo(self):
+        if getattr(self, "ai_loading", False):
+            return
         self._commit_text_entry()
         if self.annotations:
             self.undo_stack.append(self.annotations.pop())
             self.queue_draw()
+        elif getattr(self, "pre_boomerfy_state", None) is not None:
+            self._restore_pre_boomerfy_state()
+
+    def _restore_pre_boomerfy_state(self):
+        state = self.pre_boomerfy_state
+        self.bg_surface = state["bg_surface"]
+        self.img_w = state["img_w"]
+        self.img_h = state["img_h"]
+        self.crop_x1 = state["crop_x1"]
+        self.crop_y1 = state["crop_y1"]
+        self.crop_x2 = state["crop_x2"]
+        self.crop_y2 = state["crop_y2"]
+        self.selection_made = state["selection_made"]
+        self.annotations = state["annotations"]
+        self.undo_stack = state["undo_stack"]
+        self.pre_boomerfy_state = None
+
+        self.queue_draw()
+
+        root = self.get_root()
+        if root:
+            if hasattr(root, "update_boomerfy_button"):
+                root.update_boomerfy_button(False)
+            if hasattr(root, "on_selection_completed"):
+                root.on_selection_completed()
 
     def clear(self):
+        if getattr(self, "ai_loading", False):
+            return
         self._commit_text_entry()
         if self.annotations:
             self.annotations = []
@@ -334,6 +364,7 @@ class ScreenshotCanvas(Gtk.DrawingArea):
         return lx / sx, ly / sy
 
     def _on_draw(self, area, ctx, w, h):
+        ctx.save()
         # Scale drawing context to match screen logical size to image physical size
         sx, sy = self._get_scale()
         ctx.scale(sx, sy)
@@ -368,12 +399,14 @@ class ScreenshotCanvas(Gtk.DrawingArea):
 
             ctx.restore()
 
+        ctx.restore()
+
         # 4. Draw AI Loading overlay if active
         if getattr(self, "ai_loading", False):
             ctx.save()
-            # Draw translucent dark overlay over the entire drawing area
+            # Draw translucent dark overlay over the entire drawing area (unscaled w, h)
             ctx.set_source_rgba(0.08, 0.08, 0.08, 0.75)
-            ctx.rectangle(0, 0, self.img_w, self.img_h)
+            ctx.rectangle(0, 0, w, h)
             ctx.fill()
 
             # Draw a beautiful loading pill capsule in the center
@@ -386,8 +419,8 @@ class ScreenshotCanvas(Gtk.DrawingArea):
             text_w = logical_rect.width
             text_h = logical_rect.height
 
-            tx = (self.img_w - text_w) / 2
-            ty = (self.img_h - text_h) / 2
+            tx = (w - text_w) / 2
+            ty = (h - text_h) / 2
 
             ctx.set_source_rgba(0.12, 0.12, 0.12, 0.9)
             padding_x = 32
@@ -848,6 +881,8 @@ class ScreenshotCanvas(Gtk.DrawingArea):
 
     def boomerfy(self):
         """Triggers the background thread to run the boomerfy pipeline."""
+        if getattr(self, "ai_loading", False):
+            return
         import threading
 
         from gi.repository import GLib
@@ -873,12 +908,50 @@ class ScreenshotCanvas(Gtk.DrawingArea):
 
         threading.Thread(target=check_worker, daemon=True).start()
 
+    def get_cropped_pixbuf_from_state(self, state):
+        """Renders the crop region with annotations from the saved state to a GdkPixbuf."""
+        cx = int(min(state["crop_x1"], state["crop_x2"]))
+        cy = int(min(state["crop_y1"], state["crop_y2"]))
+        cw = int(abs(state["crop_x2"] - state["crop_x1"]))
+        ch = int(abs(state["crop_y2"] - state["crop_y1"]))
+
+        if cw <= 0 or ch <= 0:
+            return None
+
+        # Draw selection content onto a temporary ImageSurface
+        import cairo
+
+        export_surface = cairo.ImageSurface(cairo.Format.ARGB32, cw, ch)
+        export_ctx = cairo.Context(export_surface)
+
+        # Draw background screenshot shifted
+        export_ctx.set_source_surface(state["bg_surface"], -cx, -cy)
+        export_ctx.paint()
+
+        # Apply crop shift and draw annotations
+        export_ctx.translate(-cx, -cy)
+        for ann in state["annotations"]:
+            ann.draw(export_ctx)
+
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=True) as temp:
+            export_surface.write_to_png(temp.name)
+            from gi.repository import GdkPixbuf
+
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file(temp.name)
+            return pixbuf
+
     def _run_boomerfy_pipeline(self):
-        pixbuf = self.get_cropped_pixbuf()
-        if not pixbuf:
-            # If no selection is made, we automatically select the full screen
-            self.select_full_screen()
+        state = getattr(self, "pre_boomerfy_state", None)
+        if state is not None:
+            pixbuf = self.get_cropped_pixbuf_from_state(state)
+        else:
             pixbuf = self.get_cropped_pixbuf()
+            if not pixbuf:
+                # If no selection is made, we automatically select the full screen
+                self.select_full_screen()
+                pixbuf = self.get_cropped_pixbuf()
 
         if not pixbuf:
             return
@@ -920,6 +993,22 @@ class ScreenshotCanvas(Gtk.DrawingArea):
                         import cairo
 
                         new_bg = cairo.ImageSurface.create_from_png(new_img_path)
+
+                        # Capture pre-boomerfy state if not already set (first success)
+                        if getattr(self, "pre_boomerfy_state", None) is None:
+                            self.pre_boomerfy_state = {
+                                "bg_surface": self.bg_surface,
+                                "img_w": self.img_w,
+                                "img_h": self.img_h,
+                                "crop_x1": self.crop_x1,
+                                "crop_y1": self.crop_y1,
+                                "crop_x2": self.crop_x2,
+                                "crop_y2": self.crop_y2,
+                                "selection_made": self.selection_made,
+                                "annotations": list(self.annotations),
+                                "undo_stack": list(self.undo_stack),
+                            }
+
                         self.bg_surface = new_bg
                         self.img_w = new_bg.get_width()
                         self.img_h = new_bg.get_height()
@@ -947,6 +1036,8 @@ class ScreenshotCanvas(Gtk.DrawingArea):
                         # Notify editor window
                         root = self.get_root()
                         if root:
+                            if hasattr(root, "update_boomerfy_button"):
+                                root.update_boomerfy_button(True)
                             if hasattr(root, "on_selection_completed"):
                                 root.on_selection_completed()
                             if hasattr(root, "_send_notification"):
