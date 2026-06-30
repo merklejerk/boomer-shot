@@ -91,7 +91,7 @@ CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 DEFAULT_PROMPT = (
     "Transform this screenshot into a photo of a computer monitor taken by a cringey boomer on a "
     "smartphone camera, slightly off angle, complete with some glare/reflections. "
-    "The screenshot contents should be preserved as closely as possible."
+    "The screenshot contents (especially the text) and annotations should be preserved exactly"
 )
 
 
